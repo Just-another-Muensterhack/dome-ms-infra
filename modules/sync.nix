@@ -75,38 +75,79 @@ let
       done
     }
 
+    publish_cert_dir() {
+      local cert_dir=$1
+      local name issuer file
+      name=$(basename "$cert_dir")
+      [ -f "$cert_dir/fullchain.pem" ] || return 0
+      [ -f "$cert_dir/key.pem" ] || return 0
+      issuer=$(${pkgs.openssl}/bin/openssl x509 -in "$cert_dir/fullchain.pem" -noout -issuer 2>/dev/null || true)
+      case "$issuer" in
+        *[Mm]inica*) return 0 ;;
+      esac
+      [ -n "$issuer" ] || return 0
+      for file in fullchain.pem key.pem chain.pem; do
+        [ -f "$cert_dir/$file" ] || continue
+        publish_file "/dome/certs/$name/$file" "$cert_dir/$file"
+      done
+    }
+
+    install_platform_cert() {
+      local name=$1
+      local src=${certLive}/$name
+      local dest=/var/lib/acme/$name
+      local issuer
+      [ -f "$src/fullchain.pem" ] || return 0
+      [ -f "$src/key.pem" ] || return 0
+      issuer=$(${pkgs.openssl}/bin/openssl x509 -in "$src/fullchain.pem" -noout -issuer 2>/dev/null || true)
+      case "$issuer" in
+        *[Mm]inica*) return 0 ;;
+      esac
+      [ -n "$issuer" ] || return 0
+      if [ -f "$dest/fullchain.pem" ]; then
+        local have want
+        have=$(sha256sum "$dest/fullchain.pem" | cut -d' ' -f1)
+        want=$(sha256sum "$src/fullchain.pem" | cut -d' ' -f1)
+        [ "$have" = "$want" ] && return 0
+      fi
+      install -d -m 0750 -o acme -g nginx "$dest"
+      cp -f "$src/fullchain.pem" "$dest/fullchain.pem"
+      cp -f "$src/key.pem" "$dest/key.pem"
+      if [ -f "$src/chain.pem" ]; then
+        cp -f "$src/chain.pem" "$dest/chain.pem"
+      else
+        cp -f "$src/fullchain.pem" "$dest/chain.pem"
+      fi
+      ln -sfn fullchain.pem "$dest/cert.pem"
+      touch "$dest/acme-success"
+      chown -R acme:nginx "$dest"
+      chmod 0640 "$dest/key.pem"
+      chmod 0644 "$dest/fullchain.pem" "$dest/chain.pem"
+      systemctl reload nginx.service || true
+    }
+
     publish_tree /dome/nginx ${desiredNginx}
     publish_tree /dome/static ${mediaRoot}
-    publish_tree /dome/acme-challenge /var/lib/acme/acme-challenge/.well-known/acme-challenge
 
     if [ -d /var/lib/acme ]; then
       for cert_dir in /var/lib/acme/*/; do
         [ -d "$cert_dir" ] || continue
-        name=$(basename "$cert_dir")
-        case "$name" in
-          acme-challenge) continue ;;
+        case "$(basename "$cert_dir")" in
+          acme-challenge|http-lego|.lego|.minica) continue ;;
         esac
-        [ -f "$cert_dir/fullchain.pem" ] || continue
-        [ -f "$cert_dir/key.pem" ] || continue
-        publish_file "/dome/certs/$name/fullchain.pem" "$cert_dir/fullchain.pem"
-        publish_file "/dome/certs/$name/key.pem" "$cert_dir/key.pem"
+        publish_cert_dir "$cert_dir"
       done
     fi
 
     if [ -d ${certLive} ]; then
       for cert_dir in ${certLive}/*/; do
         [ -d "$cert_dir" ] || continue
-        name=$(basename "$cert_dir")
-        [ -f "$cert_dir/fullchain.pem" ] || continue
-        [ -f "$cert_dir/key.pem" ] || continue
-        publish_file "/dome/certs/$name/fullchain.pem" "$cert_dir/fullchain.pem"
-        publish_file "/dome/certs/$name/key.pem" "$cert_dir/key.pem"
+        publish_cert_dir "$cert_dir"
       done
     fi
 
     pull_tree /dome/nginx ${desiredNginx}
     pull_tree /dome/static ${mediaRoot}
-    pull_tree /dome/acme-challenge /var/lib/acme/acme-challenge/.well-known/acme-challenge
 
     $etcdctl get /dome/certs/ --prefix --keys-only | while read -r key; do
       case "$key" in
@@ -126,6 +167,13 @@ let
         chgrp nginx "$dest" 2>/dev/null || true
       fi
     done
+
+    if [ -d ${certLive} ]; then
+      for cert_dir in ${certLive}/*/; do
+        [ -d "$cert_dir" ] || continue
+        install_platform_cert "$(basename "$cert_dir")"
+      done
+    fi
 
     for conf in ${desiredNginx}/*.conf; do
       [ -e "$conf" ] || continue

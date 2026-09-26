@@ -26,24 +26,30 @@
   networking.ifstate = {
     enable = true;
     settings = {
-      parameters.hooks.dhcp.script = pkgs.writeScript "ifstate-udhcpc.sh" ''
-        ${lib.getExe' pkgs.busybox "udhcpc"} --quit --now -i "$IFS_IFNAME" -b --script ${pkgs.busybox}/default.script
-      '';
       interfaces = {
-        enp1s0 = {
-          addresses = [ "@IPV6@/@IPV6_PREFIX@" ];
-          hooks = [ { name = "dhcp"; } ];
+        "@IFACE@" = {
+          addresses = [
+            "@IPV4@/@IPV4_PREFIX@"
+            "@IPV6@/@IPV6_PREFIX@"
+          ];
           link = {
             kind = "physical";
             state = "up";
+            address = "@MAC@";
           };
         };
       };
       routing.routes = [
         {
+          to = "0.0.0.0/0";
+          via = "@IPV4_GATEWAY@";
+          onlink = true;
+          dev = "@IFACE@";
+        }
+        {
           to = "::/0";
-          via = "fe80::1";
-          dev = "enp1s0";
+          via = "@IPV6_GATEWAY@";
+          dev = "@IFACE@";
         }
       ];
     };

@@ -18,6 +18,17 @@ let
     ]
     ++ lib.optional (cfg.publicHost != null) cfg.publicHost
   );
+  mediaCsp = lib.concatStringsSep "; " [
+    "default-src 'none'"
+    "script-src 'self' 'unsafe-inline' https: http:"
+    "img-src 'self' https: http: data:"
+    "style-src 'self' 'unsafe-inline' https: http:"
+    "font-src 'self' https: http: data:"
+    "connect-src 'self' https: http:"
+    "base-uri 'none'"
+    "form-action 'none'"
+    "frame-ancestors ${lib.concatStringsSep " " ([ "'self'" ] ++ corsOrigins)}"
+  ];
   stateRoot = "/var/lib/dome.ms";
   mediaRoot = "${stateRoot}/data";
   nginxConfigDir = "${stateRoot}/nginx-desired";
@@ -31,6 +42,10 @@ in
 {
   config = lib.mkIf (config.dome.enable && cfg.enable) {
     sops.secrets."keycloak/client_secret" = {
+      sopsFile = config.dome.sops.clusterFile;
+    };
+
+    sops.secrets."backend/model_api_key" = {
       sopsFile = config.dome.sops.clusterFile;
     };
 
@@ -50,6 +65,8 @@ in
         DJANGO_ALLOWED_HOSTS=*
         CORS_ALLOWED_ORIGINS=${lib.concatStringsSep "," corsOrigins}
         DEBUG=false
+        MODEL_API_KEY=${config.sops.placeholder."backend/model_api_key"}
+        MODEL_API_URL=${cfg.backend.modelApiUrl}
       '';
       owner = "dome";
       group = "dome";
@@ -97,7 +114,7 @@ in
           "NGINX_RESOLVER=127.0.0.1"
           "DOME_BASE_DOMAIN=${cfg.web.host}"
         ];
-        ExecStart = "${backendPkg}/bin/ms-dome";
+        ExecStart = "${backendPkg}/bin/ms-dome --timeout 360";
         Restart = "on-failure";
         RestartSec = "10s";
         WorkingDirectory = "/var/lib/dome-backend";
@@ -141,7 +158,24 @@ in
         include ${nginxLiveDir}/*.conf;
       '';
       virtualHosts.${cfg.backend.host} = http.tls // {
-        locations."/" = http.proxy cfg.backend.port;
+        locations."/" = http.proxy cfg.backend.port // {
+          extraConfig = ''
+            proxy_read_timeout 360s;
+          '';
+        };
+      };
+      virtualHosts.${cfg.web.host}.locations = {
+        "/api/" = http.proxy cfg.backend.port // {
+          extraConfig = ''
+            proxy_read_timeout 360s;
+          '';
+        };
+        "/media/" = {
+          alias = "${mediaRoot}/";
+          extraConfig = ''
+            add_header Content-Security-Policy "${mediaCsp}" always;
+          '';
+        };
       };
     };
 

@@ -2,20 +2,19 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 [--prepare-only] <ipv4> <ipv6> [ssh-target]"
+  echo "Usage: $0 [--prepare-only] <ssh-target>"
   echo
-  echo "  ipv4         public IPv4 address (optional /prefix, e.g. 46.62.154.20)"
-  echo "  ipv6         public IPv6 address (optional /prefix, e.g. 2a01:4f9:c010:82a3::/64)"
-  echo "  ssh-target   install address (defaults to ipv4)"
+  echo "  ssh-target   stock machine to install (root@host or host)"
   echo
-  echo "Draws a free adjective-animal name (for example lurking-bear.dome.ms),"
-  echo "writes nodes/<fqdn>.nix, scaffolds the host, and generates sops keys."
+  echo "SSHes into the target, discovers the primary NIC (name, MAC, IPv4/IPv6,"
+  echo "gateways), draws a free adjective-animal name, writes nodes/<fqdn>.nix,"
+  echo "scaffolds the host with static addressing, and generates sops keys."
   echo "Writes deploy-log/<fqdn>.log (mode 0600, gitignored)."
   echo "Re-runs reuse deploy-log/<fqdn>/ so the host key stays put."
   echo
   echo "  --prepare-only   write keys and secrets, do not install"
   echo "  ROOT_PASSWORD    current root password of the stock machine"
-  echo "  SSHPASS          same password, passed to nixos-anywhere --env-password"
+  echo "  SSHPASS          same password, used for discovery and nixos-anywhere"
   echo
   echo "Run inside nix develop so age-keygen, ssh-to-age, sops, and nixos-anywhere are on PATH."
   exit 1
@@ -31,13 +30,11 @@ for arg in "$@"; do
   esac
 done
 
-if [[ ${#ARGS[@]} -lt 2 || ${#ARGS[@]} -gt 3 ]]; then
+if [[ ${#ARGS[@]} -ne 1 ]]; then
   usage
 fi
 
-RAW_IPV4="${ARGS[0]}"
-RAW_IPV6="${ARGS[1]}"
-SSH_TARGET="${ARGS[2]:-$RAW_IPV4}"
+SSH_TARGET="${ARGS[0]}"
 
 if [[ "$SSH_TARGET" == *" "* || "$SSH_TARGET" == *$'\n'* || -z "$SSH_TARGET" ]]; then
   echo "Invalid ssh target" >&2
@@ -68,48 +65,163 @@ need openssl
 need ssh-keygen
 need python3
 need nix-instantiate
+need ssh
 if [[ "$PREPARE_ONLY" -eq 0 ]]; then
   need nixos-anywhere
 fi
 
-export RAW_IPV4 RAW_IPV6
-eval "$(python3 - << 'PY'
+if [[ -z "${SSHPASS:-}" && -n "${ROOT_PASSWORD:-}" ]]; then
+  export SSHPASS="$ROOT_PASSWORD"
+fi
+if [[ -z "${SSHPASS:-}" && -t 0 ]]; then
+  read -rsp "Root password for $SSH_CONN (empty to use an SSH key): " SSHPASS
+  echo
+  if [[ -n "$SSHPASS" ]]; then
+    export SSHPASS
+  fi
+fi
+
+SSH_BASE_OPTS=(
+  -F /dev/null
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o GlobalKnownHostsFile=/dev/null
+  -o ConnectTimeout=20
+  -o LogLevel=ERROR
+)
+
+ssh_run() {
+  if [[ -n "${SSHPASS:-}" ]]; then
+    need sshpass
+    sshpass -e -P 'assword' ssh \
+      "${SSH_BASE_OPTS[@]}" \
+      -o PreferredAuthentications=password,keyboard-interactive \
+      -o PubkeyAuthentication=no \
+      -o NumberOfPasswordPrompts=1 \
+      "$@"
+  else
+    ssh \
+      "${SSH_BASE_OPTS[@]}" \
+      -o BatchMode=yes \
+      -o IdentitiesOnly=yes \
+      "$@"
+  fi
+}
+
+echo "[*] Discovering network on $SSH_CONN..."
+DISCOVERY_JSON="$(ssh_run "$SSH_CONN" bash -s <<'REMOTE'
+set -euo pipefail
+python3 - <<'PY'
+import json
+import subprocess
+
+def run(cmd):
+    return subprocess.check_output(cmd, text=True)
+
+def default_iface(family: str) -> str:
+    out = run(["ip", "-o", f"-{family}", "route", "show", "default"])
+    for line in out.splitlines():
+        parts = line.split()
+        if "dev" in parts:
+            return parts[parts.index("dev") + 1]
+    raise SystemExit(f"no default ipv{family} route")
+
+def gateway(family: str) -> str:
+    out = run(["ip", "-o", f"-{family}", "route", "show", "default"])
+    for line in out.splitlines():
+        parts = line.split()
+        if "via" in parts:
+            return parts[parts.index("via") + 1]
+    raise SystemExit(f"no default ipv{family} gateway")
+
+def addrs(iface: str, family: int):
+    out = run(["ip", "-o", f"-{family}", "addr", "show", "dev", iface, "scope", "global"])
+    found = []
+    key = "inet6" if family == 6 else "inet"
+    for line in out.splitlines():
+        parts = line.split()
+        if key not in parts:
+            continue
+        cidr = parts[parts.index(key) + 1]
+        ip, prefix = cidr.split("/", 1)
+        found.append((ip, int(prefix)))
+    return found
+
+iface = default_iface("4")
+with open(f"/sys/class/net/{iface}/address", encoding="utf-8") as fh:
+    mac = fh.read().strip().lower()
+
+v4 = addrs(iface, 4)
+v6 = addrs(iface, 6)
+if not v4:
+    raise SystemExit(f"no global ipv4 on {iface}")
+if not v6:
+    raise SystemExit(f"no global ipv6 on {iface}")
+
+ipv4, ipv4_prefix = v4[0]
+ipv6, ipv6_prefix = v6[0]
+gw4 = gateway("4")
+try:
+    gw6 = gateway("6")
+except SystemExit:
+    gw6 = "fe80::1"
+
+print(json.dumps({
+    "iface": iface,
+    "mac": mac,
+    "ipv4": ipv4,
+    "ipv4_prefix": ipv4_prefix,
+    "ipv4_gateway": gw4,
+    "ipv6": ipv6,
+    "ipv6_prefix": ipv6_prefix,
+    "ipv6_gateway": gw6,
+}))
+PY
+REMOTE
+)"
+
+eval "$(DISCOVERY_JSON="$DISCOVERY_JSON" python3 - <<'PY'
 import ipaddress
+import json
 import os
-import sys
 
-def split_addr(raw: str, version: int):
-    raw = raw.strip()
-    try:
-        iface = ipaddress.ip_interface(raw)
-    except ValueError as exc:
-        raise SystemExit(f"invalid ipv{version}: {raw}") from exc
-    if iface.version != version:
-        raise SystemExit(f"expected ipv{version}, got ipv{iface.version}: {raw}")
-    prefix = iface.network.prefixlen
-    if version == 4 and "/" not in raw:
-        prefix = 32
-    if version == 6 and "/" not in raw:
-        prefix = 64
-    return str(iface.ip), prefix
+data = json.loads(os.environ["DISCOVERY_JSON"])
+required = (
+    "iface",
+    "mac",
+    "ipv4",
+    "ipv4_prefix",
+    "ipv4_gateway",
+    "ipv6",
+    "ipv6_prefix",
+    "ipv6_gateway",
+)
+for key in required:
+    if not data.get(key):
+        raise SystemExit(f"discovery missing {key}")
 
-ipv4, _ = split_addr(os.environ["RAW_IPV4"], 4)
-ipv6, ipv6_prefix = split_addr(os.environ["RAW_IPV6"], 6)
-print(f"IPV4={ipv4}")
-print(f"IPV6={ipv6}")
-print(f"IPV6_PREFIX={ipv6_prefix}")
+ipaddress.IPv4Address(data["ipv4"])
+ipaddress.IPv4Address(data["ipv4_gateway"])
+ipaddress.IPv6Address(data["ipv6"])
+ipaddress.IPv6Address(data["ipv6_gateway"])
+
+print(f"IFACE={data['iface']}")
+print(f"MAC={data['mac']}")
+print(f"IPV4={data['ipv4']}")
+print(f"IPV4_PREFIX={data['ipv4_prefix']}")
+print(f"IPV4_GATEWAY={data['ipv4_gateway']}")
+print(f"IPV6={data['ipv6']}")
+print(f"IPV6_PREFIX={data['ipv6_prefix']}")
+print(f"IPV6_GATEWAY={data['ipv6_gateway']}")
 PY
 )"
 
-if [[ -z "${IPV4:-}" || -z "${IPV6:-}" || -z "${IPV6_PREFIX:-}" ]]; then
-  echo "Failed to normalize addresses" >&2
-  exit 1
-fi
+echo "[+] Discovered $IFACE mac=$MAC"
+echo "[+]   ipv4=$IPV4/$IPV4_PREFIX via $IPV4_GATEWAY"
+echo "[+]   ipv6=$IPV6/$IPV6_PREFIX via $IPV6_GATEWAY"
 
-echo "[*] Addresses: ipv4=$IPV4 ipv6=$IPV6/$IPV6_PREFIX"
-
-export IPV4 IPV6 IPV6_PREFIX
-eval "$(python3 - << 'PY'
+export IPV4 IPV6
+eval "$(python3 - <<'PY'
 import json
 import os
 import random
@@ -135,33 +247,45 @@ def hash_fqdn(fqdn: str) -> int:
     import hashlib
     return (int(hashlib.sha256(fqdn.encode()).hexdigest()[:6], 16) % 1000) + 1
 
-existing = {}
 nodes_dir = Path("nodes")
 nodes_dir.mkdir(exist_ok=True)
+taken_names = set()
+taken_offsets = set()
+ip_to_fqdn = {}
 for path in nodes_dir.glob("*.nix"):
     fqdn = path.name[: -len(".nix")]
-    text = path.read_text()
-    existing[fqdn] = hash_fqdn(fqdn)
+    taken_names.add(fqdn)
+    taken_offsets.add(hash_fqdn(fqdn))
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("ipv4 = "):
+            ip_to_fqdn[line.split('"')[1]] = fqdn
 
-taken_names = set(existing)
-taken_offsets = set(existing.values())
-
-for _ in range(10000):
-    adjective = random.choice(adjectives)
-    animal = random.choice(animals)
-    label = f"{adjective}-{animal}"
-    fqdn = f"{label}.dome.ms"
-    if fqdn in taken_names:
-        continue
+ipv4 = os.environ["IPV4"]
+if ipv4 in ip_to_fqdn:
+    fqdn = ip_to_fqdn[ipv4]
+    label = fqdn[: -len(".dome.ms")]
     offset = hash_fqdn(fqdn)
-    if offset in taken_offsets:
-        continue
     print(f"FQDN={fqdn}")
     print(f"LABEL={label}")
     print(f"OFFSET={offset}")
-    break
+    print("REUSED=1")
 else:
-    raise SystemExit("could not find a free adjective-animal name")
+    for _ in range(10000):
+        label = f"{random.choice(adjectives)}-{random.choice(animals)}"
+        fqdn = f"{label}.dome.ms"
+        if fqdn in taken_names:
+            continue
+        offset = hash_fqdn(fqdn)
+        if offset in taken_offsets:
+            continue
+        print(f"FQDN={fqdn}")
+        print(f"LABEL={label}")
+        print(f"OFFSET={offset}")
+        print("REUSED=0")
+        break
+    else:
+        raise SystemExit("could not find a free adjective-animal name")
 PY
 )"
 
@@ -170,13 +294,20 @@ if [[ -z "${FQDN:-}" || -z "${LABEL:-}" ]]; then
   exit 1
 fi
 
-echo "[+] Generated name: $FQDN"
+if [[ "${REUSED:-0}" == "1" ]]; then
+  echo "[*] Reusing existing name: $FQDN"
+else
+  echo "[+] Generated name: $FQDN"
+fi
 
 NODE_FILE="nodes/${FQDN}.nix"
 cat > "$NODE_FILE" <<EOF
 {
   ipv4 = "${IPV4}";
   ipv6 = "${IPV6}";
+  mac = "${MAC}";
+  iface = "${IFACE}";
+  gateway = "${IPV4_GATEWAY}";
 }
 EOF
 echo "[+] Wrote $NODE_FILE"
@@ -209,11 +340,17 @@ scaffold_host() {
   fi
   install -d "$HOST_PATH"
   sed \
+    -e "s|@IFACE@|${IFACE}|g" \
+    -e "s|@MAC@|${MAC}|g" \
+    -e "s|@IPV4@|${IPV4}|g" \
+    -e "s|@IPV4_PREFIX@|${IPV4_PREFIX}|g" \
+    -e "s|@IPV4_GATEWAY@|${IPV4_GATEWAY}|g" \
     -e "s|@IPV6@|${IPV6}|g" \
     -e "s|@IPV6_PREFIX@|${IPV6_PREFIX}|g" \
+    -e "s|@IPV6_GATEWAY@|${IPV6_GATEWAY}|g" \
     "$template/configuration.nix" > "$HOST_PATH/configuration.nix"
   cp "$template/disko.nix" "$HOST_PATH/"
-  echo "[+] Created $HOST_PATH from $template"
+  echo "[+] Created $HOST_PATH from $template (static $IFACE $MAC)"
 }
 
 scaffold_host
@@ -409,8 +546,12 @@ echo "[+] Host age key can decrypt cluster and host secrets"
 umask 077
 {
   echo "fqdn: $FQDN"
-  echo "ipv4: $IPV4"
-  echo "ipv6: $IPV6"
+  echo "iface: $IFACE"
+  echo "mac: $MAC"
+  echo "ipv4: $IPV4/$IPV4_PREFIX"
+  echo "ipv4_gateway: $IPV4_GATEWAY"
+  echo "ipv6: $IPV6/$IPV6_PREFIX"
+  echo "ipv6_gateway: $IPV6_GATEWAY"
   echo "ssh_target: $SSH_CONN"
   echo "created: $(date -Is)"
   echo "host_path: $HOST_PATH"
@@ -461,17 +602,6 @@ if [[ ${#BLOCKERS[@]} -gt 0 ]]; then
   exit 1
 fi
 
-if [[ -z "${SSHPASS:-}" && -n "${ROOT_PASSWORD:-}" ]]; then
-  export SSHPASS="$ROOT_PASSWORD"
-fi
-if [[ -z "${SSHPASS:-}" && -t 0 ]]; then
-  read -rsp "Root password for $SSH_CONN (empty to use an SSH key): " SSHPASS
-  echo
-  if [[ -n "$SSHPASS" ]]; then
-    export SSHPASS
-  fi
-fi
-
 EXTRA_DIR="$(mktemp -d)"
 install -d -m 755 "$EXTRA_DIR/etc/ssh"
 install -m 600 "$STATE/ssh_host_ed25519_key" "$EXTRA_DIR/etc/ssh/ssh_host_ed25519_key"
@@ -482,9 +612,17 @@ NA_ARGS=(
   --flake ".#$FQDN"
   --kexec-extra-flags -c
   -L
+  --ssh-option StrictHostKeyChecking=no
+  --ssh-option UserKnownHostsFile=/dev/null
+  --ssh-option GlobalKnownHostsFile=/dev/null
 )
 if [[ -n "${SSHPASS:-}" ]]; then
   NA_ARGS+=(--env-password)
+else
+  NA_ARGS+=(
+    --ssh-option BatchMode=yes
+    --ssh-option IdentitiesOnly=yes
+  )
 fi
 
 echo "[*] Installing NixOS on $SSH_CONN..."

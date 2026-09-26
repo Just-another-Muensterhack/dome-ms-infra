@@ -6,10 +6,12 @@
 let
   nodesLib = import ../lib/nodes.nix { inherit lib; };
   cfg = config.dome;
-  platformHosts = lib.optionals cfg.apps.enable [
+  localHosts = lib.optionals cfg.apps.enable [
     cfg.apps.web.host
-    cfg.apps.backend.host
     cfg.apps.keycloak.host
+  ];
+  platformHosts = lib.optionals cfg.apps.enable [
+    cfg.apps.backend.host
   ];
   nodes = cfg.nodes;
 in
@@ -33,7 +35,13 @@ in
     };
 
     networking.hosts = lib.mkMerge (
-      map (node: {
+      [
+        {
+          "127.0.0.1" = localHosts;
+          "::1" = localHosts;
+        }
+      ]
+      ++ map (node: {
         ${node.ipv4} = [ node.fqdn ] ++ nodesLib.sharedNames ++ platformHosts;
         ${node.ipv6} = [ node.fqdn ] ++ nodesLib.sharedNames ++ platformHosts;
       }) (lib.attrValues nodes)

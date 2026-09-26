@@ -3,6 +3,8 @@ dome:
     ca_key: ENC[AES256_GCM,data:a5yptXqRqFErVs2My89WGB8zKdT+soPkQNhQTDftBPcp0I6JCJ8hMQzWzkf+NEiUshJa5/T7eaYwUgUYS9fG2Hkyu9/9yL8r5JnyhFylZzdJKymJc118/CEtFS/8HEFPbSAAZdd1wKOFS/Xa0+X3lupajs3AnY1ZNlhhEbe1E9Pw5y2MRx9itHh/3d6XGOjVe81SzdJcpUI46ku8j8U/bQQJcMwQ8lIfypgHLclPwWOZRbzYCF0GaJ54ZjFVADYBkQtUMLYV7ZEgBgusDQZt9z2y9GhiHhnqbiEi6qvu4pVSIE1BKIl9WPxM4BurIkVsqw==,iv:zSkOBEozWAoRI2dI3qlyBKKfVBNnVV0vl+U10NkDdZ4=,tag:CIfcnlNVv39B2h0iut0sdA==,type:str]
 postgres:
     replicator_password: ENC[AES256_GCM,data:Tiry+ZgoQMI8q9KS0G2CMpFuWYJPv/yCTaYfpb8VsKBxQa389+wWWHyQcKU=,iv:i1osEc53pmc6A33QiKOmboesIT4uBghvuL8FJXfPofM=,tag:Sh4ef9tgnKCOcMNmZ+uf6Q==,type:str]
+backend:
+    model_api_key: ENC[AES256_GCM,data:0LgiT7aYv+q+kVVxWsNGQCkowkI9ZAZqZvQNQwLhJzdNLy4/iqKyLbfMGb7TYAnW,iv:+SsUDcTKaoI0jsLN3owfbfnqqVRKXthqNNVTmxHn/uY=,tag:2B0bzM5dnag+5LESt3rb3Q==,type:str]
 sops:
     age:
         - enc: |
@@ -14,7 +16,7 @@ sops:
             Qn1PFfCOBWuAoblACb9WtHPlj6DpACLfR3Ep9mtQ7oknvuIAMGd0xg==
             -----END AGE ENCRYPTED FILE-----
           recipient: age13yegj506va90qgufatfr9smratu85rnx95nsw9gwlnhl2n6wv3jqnjnv3y
-    lastmodified: "2026-09-25T15:59:15Z"
-    mac: ENC[AES256_GCM,data:tQwKC2kQg/Ss7Afbm0GSClhEZuDAqlIfs6HdhBxmvGX5IxOXm4dYSxEYSS02f0IYAgvPAG4UTGq2qGiEWcW/dsk43bsFY1QL1r8m4BhXKjAr+x5mChg+TRkckAHKnPoopzOlEIA4By93Q/cGQ5bUbHmHHP2AIlQobCk/2ovE5aE=,iv:KQK4f6hsPGaULOhn9YMtiZsXuGgHgShcoxBzs3CJxLU=,tag:sjVni6zhaZx2xUCIjjGB+w==,type:str]
+    lastmodified: "2026-09-26T12:27:07Z"
+    mac: ENC[AES256_GCM,data:sj8MVRggeD6oUKEYCD8NLpA9qnyah5vWVt5O2k7CnsqWdp2x9wwsRWe3uDnD0ZtNbE7pwZ2Dy1d4QfOM21wMVLYmCIaaPQLLDc9e30KLqIYYmky4If6pXQ3Gs7wAoLySwzZ+497T4WLjA12x1HazkxL03OC/ZXJzvCXrLy+EOM4=,iv:t+pGYzbbCDorxTWlPJV6AG397ZFYwFu3oybji1D6nDQ=,tag:r2XmoiuroMnkWtSwTrnp5g==,type:str]
     unencrypted_suffix: _unencrypted
     version: 3.13.3

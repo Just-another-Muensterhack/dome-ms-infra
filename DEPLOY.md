@@ -75,10 +75,12 @@ With `dome.apps.enable` (default), every node also runs Keycloak (Postgres DB `k
 
 ## 5. DNS
 
-Point the `dome.ms` registrar at the cluster:
+Point the `dome.ms` registrar away from Cloudflare (or any other DNS host) to this cluster:
 
 - NS: `ns.dome.ms` and `dns.dome.ms`
-- Glue A/AAAA for those names: every node’s public address
+- Glue A/AAAA for those names: every node’s public address (same values as in `nodes/*.nix`)
+
+Until that cutover finishes, public resolvers will not query Knot on the nodes. You can still test locally with `dig @<node-ipv4> dome.ms`.
 
 Each node serves the same zone. Platform names (`dome.ms`, `api`, `id`, `status`, every peer) are A/AAAA to all node addresses. ACME TXT records for the `dome.ms` / `*.dome.ms` DNS-01 cert live under `/dome/dns/` in etcd and are rendered into the zone.
 
@@ -86,13 +88,14 @@ Customer domains outside `dome.ms` use HTTP-01. Challenge files are published to
 
 ## 6. Add a node
 
-`dome.repo.url` in `modules/cluster.nix` must already point at this repo. From `nix develop`:
+`dome.repo.url` in `modules/cluster.nix` must already point at this repo. From `nix develop`, with the stock machine reachable over SSH:
 
 ```bash
-./setup_new_machine.sh <ipv4> <ipv6> [ssh-target]
+./setup_new_machine.sh 46.62.154.20
+# or: ./setup_new_machine.sh root@46.62.154.20
 ```
 
-The script draws a free adjective-animal name (for example `lurking-bear.dome.ms`), writes `nodes/<fqdn>.nix`, copies an existing host directory when `hosts/...` is missing, then generates an SSH host key and the age recipient. The first run also creates the admin age key, `.sops.yaml`, and `secrets/cluster.yaml`. Later nodes are added to those creation rules and the cluster file is rekeyed. Host config, node inventory, and encrypted secrets are staged so the flake can see them.
+The script SSHes in, discovers the primary NIC (name, MAC, IPv4/IPv6, gateways), draws a free adjective-animal name (for example `lurking-bear.dome.ms`), writes `nodes/<fqdn>.nix`, scaffolds a static ifstate host config, then generates an SSH host key and the age recipient. The first run also creates the admin age key, `.sops.yaml`, and `secrets/cluster.yaml`. Later nodes are added to those creation rules and the cluster file is rekeyed. Host config, node inventory, and encrypted secrets are staged so the flake can see them.
 
 A mode `0600` dump is written to `deploy-log/<fqdn>.log` (gitignored). It contains the host key, admin age identity, and decrypted cluster secrets. Re-running the script reuses `deploy-log/<fqdn>/`.
 

@@ -34,14 +34,17 @@
         "uv2nix": "uv2nix"
       },
       "locked": {
-        "lastModified": 1790421940,
-        "narHash": "sha256-e1hKjuI+qjK1SN62w2vdVGB/NyN7LhPZBEW0vRMJbxw=",
-        "path": "/home/worker/development/dome.ms/dome-ms-backend",
-        "type": "path"
+        "lastModified": 1790431634,
+        "narHash": "sha256-2WHqn/mi+MjAqjwqPSHsgbklv96roQjrsJCZvyaPTO4=",
+        "owner": "Just-another-Muensterhack",
+        "repo": "dome-ms",
+        "rev": "ca17e9a9df3afb466279534802518b7d95a1bb08",
+        "type": "github"
       },
       "original": {
-        "path": "/home/worker/development/dome.ms/dome-ms-backend",
-        "type": "path"
+        "owner": "Just-another-Muensterhack",
+        "repo": "dome-ms",
+        "type": "github"
       }
     },
     "comin": {

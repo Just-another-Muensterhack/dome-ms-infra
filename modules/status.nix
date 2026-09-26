@@ -1,9 +1,4 @@
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}:
+{ config, lib, ... }:
 let
   cfg = config.dome;
   http = import ./apps/http.nix { inherit config lib; };
@@ -16,6 +11,7 @@ let
       group,
       url,
       conditions ? [ "[CONNECTED] == true" ],
+      interval ? "1m",
     }:
     {
       inherit
@@ -23,8 +19,8 @@ let
         group
         url
         conditions
+        interval
         ;
-      interval = "1m";
       client.insecure = false;
     };
 
@@ -46,7 +42,8 @@ let
     "api.dome.ms"
     "id.dome.ms"
     statusHost
-  ];
+  ]
+  ++ lib.optional (cfg.apps.enable && cfg.apps.publicHost != null) cfg.apps.publicHost;
 
   serviceEndpoints = map (
     host:
@@ -56,6 +53,20 @@ let
       url = "https://${host}";
       conditions = [
         "[STATUS] < 500"
+      ];
+    }
+  ) serviceHosts;
+
+  certEndpoints = map (
+    host:
+    endpoint {
+      name = host;
+      group = "certs";
+      url = "https://${host}";
+      interval = "15m";
+      conditions = [
+        "[CONNECTED] == true"
+        "[CERTIFICATE_EXPIRATION] > 336h"
       ];
     }
   ) serviceHosts;
@@ -72,7 +83,7 @@ in
         storage = {
           type = "memory";
         };
-        endpoints = nodeEndpoints ++ serviceEndpoints;
+        endpoints = nodeEndpoints ++ serviceEndpoints ++ certEndpoints;
       };
     };
 
