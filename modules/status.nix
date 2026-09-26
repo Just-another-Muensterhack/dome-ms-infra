@@ -57,10 +57,6 @@ let
     }
   ) serviceHosts;
 
-  certHosts = lib.unique (
-    serviceHosts ++ map (node: node.fqdn) nodes
-  );
-
   certEndpoints = map (
     host:
     endpoint {
@@ -73,7 +69,7 @@ let
         "[CERTIFICATE_EXPIRATION] > 336h"
       ];
     }
-  ) certHosts;
+  ) serviceHosts;
 in
 {
   config = lib.mkIf cfg.enable {
