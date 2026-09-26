@@ -34,6 +34,10 @@ in
       sopsFile = config.dome.sops.clusterFile;
     };
 
+    sops.secrets."backend/model_api_key" = {
+      sopsFile = config.dome.sops.clusterFile;
+    };
+
     sops.templates."dome-backend.env" = {
       content = ''
         PORT=${toString cfg.backend.port}
@@ -50,6 +54,8 @@ in
         DJANGO_ALLOWED_HOSTS=*
         CORS_ALLOWED_ORIGINS=${lib.concatStringsSep "," corsOrigins}
         DEBUG=false
+        MODEL_API_KEY=${config.sops.placeholder."backend/model_api_key"}
+        MODEL_API_URL=${cfg.backend.modelApiUrl}
       '';
       owner = "dome";
       group = "dome";
