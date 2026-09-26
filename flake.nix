@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     backend = {
-      url = "path:/home/worker/development/dome.ms/dome-ms-backend";
+      url = "github:Just-another-Muensterhack/dome-ms";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
