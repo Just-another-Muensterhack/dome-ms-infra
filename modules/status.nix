@@ -26,14 +26,14 @@ let
 
   nodeEndpoints = lib.concatMap (node: [
     (endpoint {
-      name = "${node.fqdn} https";
-      group = "nodes";
-      url = "tcp://${node.ipv4}:443";
-    })
-    (endpoint {
       name = "${node.fqdn} dns";
       group = "nodes";
       url = "tcp://${node.ipv4}:53";
+    })
+    (endpoint {
+      name = "${node.fqdn} ping";
+      group = "nodes";
+      url = "icmp://${node.ipv4}";
     })
   ]) nodes;
 
