@@ -12,7 +12,7 @@ let
   webPkg = inputs.backend.packages.${system}.ms-dome-web.overrideAttrs (old: {
     npmDeps = pkgs.fetchNpmDeps {
       inherit (old) src;
-      hash = "sha256-Ggr5fnmJS4UWhTv7j91JxmEudRVLWPiBnmPYPHabSm0=";
+      hash = "sha256-h0yOtZXTt5lPbBE3nGhHaS5MD0FD+UqsKd1czmLDBoM=";
     };
     env = old.env // {
       NEXT_PUBLIC_API_ORIGIN = "https://${cfg.backend.host}";
