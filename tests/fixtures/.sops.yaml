@@ -1,0 +1,11 @@
+keys:
+  - &test age13yegj506va90qgufatfr9smratu85rnx95nsw9gwlnhl2n6wv3jqnjnv3y
+creation_rules:
+  - path_regex: cluster\.yaml$
+    key_groups:
+      - age:
+          - *test
+  - path_regex: host-secrets\.yaml$
+    key_groups:
+      - age:
+          - *test
