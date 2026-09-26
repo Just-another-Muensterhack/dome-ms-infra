@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     backend = {
-      url = "github:Just-another-Muensterhack/dome-ms-backend";
+      url = "path:/home/worker/development/dome.ms/dome-ms-backend";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -24,8 +24,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    adminKeys = {
+    adminKeys-felixevers = {
       url = "https://github.com/felixevers.keys";
+      flake = false;
+    };
+
+    adminKeys-schnitzel4 = {
+      url = "https://github.com/schnitzel4.keys";
       flake = false;
     };
   };
@@ -37,12 +42,11 @@
       comin,
       sops-nix,
       disko,
-      adminKeys,
       ...
     }@inputs:
     let
       inherit (nixpkgs) lib;
-      adminSshKeys = lib.filter (key: key != "") (lib.splitString "\n" (builtins.readFile adminKeys));
+      adminSshKeys = import ./admin-keys.nix { inherit lib inputs; };
 
       defaultSystems = [ "x86_64-linux" ];
       eachDefaultSystem = lib.genAttrs defaultSystems;

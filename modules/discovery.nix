@@ -4,9 +4,6 @@
   pkgs,
   ...
 }:
-let
-  cfg = config.dome.discovery;
-in
 {
   config = lib.mkIf config.dome.enable {
     systemd.services.dome-discovery = {
@@ -19,7 +16,6 @@ in
       path = with pkgs; [
         coreutils
         gawk
-        getent
         gnugrep
         iproute2
         nftables
@@ -34,20 +30,21 @@ in
 
         install -d -m 0755 /run/dome
 
-        resolved=$(getent ahosts ${lib.escapeShellArg cfg.name} | awk '{ print $1 }' | sort -u || true)
-        if [ -n "$resolved" ]; then
-          printf '%s\n' "$resolved" > /run/dome/peers.tmp
-          mv /run/dome/peers.tmp /run/dome/peers
-        else
-          echo "no addresses resolved for ${cfg.name}, keeping previous peers" >&2
+        if [ ! -s /etc/dome/nodes ]; then
+          echo "missing /etc/dome/nodes" >&2
+          exit 1
         fi
 
-        [ -s /run/dome/peers ] || exit 0
+        awk '{ print $2; print $3 }' /etc/dome/nodes | sort -u > /run/dome/peers.tmp
+        mv /run/dome/peers.tmp /run/dome/peers
 
         local_addrs=$(ip -o addr show scope global | awk '{ split($4, a, "/"); print a[1] }' | sort -u)
         self=$(comm -12 /run/dome/peers <(printf '%s\n' "$local_addrs") | head -n 1 || true)
         if [ -n "$self" ]; then
           printf '%s\n' "$self" > /run/dome/self
+        else
+          rm -f /run/dome/self
+          echo "no local address matches /etc/dome/nodes" >&2
         fi
 
         v4=$(grep -v ':' /run/dome/peers | paste -sd, - || true)
@@ -57,8 +54,8 @@ in
         [ -z "$v4" ] || nft add element inet dome peers4 "{ $v4 }"
         [ -z "$v6" ] || nft add element inet dome peers6 "{ $v6 }"
 
-        ${lib.optionalString (cfg.units != [ ]) ''
-          systemctl start --no-block ${lib.escapeShellArgs cfg.units}
+        ${lib.optionalString (config.dome.discovery.units != [ ]) ''
+          systemctl start --no-block ${lib.escapeShellArgs config.dome.discovery.units}
         ''}
       '';
     };
@@ -67,7 +64,7 @@ in
       wantedBy = [ "timers.target" ];
       timerConfig = {
         OnBootSec = "30s";
-        OnUnitActiveSec = cfg.interval;
+        OnUnitActiveSec = config.dome.discovery.interval;
       };
     };
   };

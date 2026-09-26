@@ -2,11 +2,13 @@
 {
   imports = [
     ./dome/options.nix
+    ./dome/nodes-options.nix
     ./dome/apps-options.nix
     ./dome/acme-options.nix
     ./dome/testing-options.nix
     ./dome/waf-options.nix
     ./cluster.nix
+    ./nodes.nix
     ./sops.nix
     ./comin.nix
     ./testing.nix

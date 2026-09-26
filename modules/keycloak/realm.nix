@@ -81,7 +81,7 @@ in
   loginTheme = "dome";
   enabled = true;
   sslRequired = "external";
-  registrationAllowed = false;
+  registrationAllowed = true;
   loginWithEmailAllowed = true;
   duplicateEmailsAllowed = false;
   resetPasswordAllowed = false;

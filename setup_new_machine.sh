@@ -2,13 +2,15 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 [--prepare-only] <fqdn> [ssh-target]"
+  echo "Usage: $0 [--prepare-only] <ipv4> <ipv6> [ssh-target]"
   echo
-  echo "  fqdn         flake target, for example node1.dome.ms"
-  echo "  ssh-target   install address (defaults to fqdn)"
+  echo "  ipv4         public IPv4 address of the new machine"
+  echo "  ipv6         public IPv6 address of the new machine"
+  echo "  ssh-target   install address (defaults to ipv4)"
   echo
-  echo "Generates an SSH host key and sops recipients. Writes"
-  echo "deploy-log/<fqdn>.log (mode 0600, gitignored)."
+  echo "Draws a free adjective-animal name (for example lurking-bear.dome.ms),"
+  echo "writes nodes/<fqdn>.nix, scaffolds the host, and generates sops keys."
+  echo "Writes deploy-log/<fqdn>.log (mode 0600, gitignored)."
   echo "Re-runs reuse deploy-log/<fqdn>/ so the host key stays put."
   echo
   echo "  --prepare-only   write keys and secrets, do not install"
@@ -29,21 +31,21 @@ for arg in "$@"; do
   esac
 done
 
-if [[ ${#ARGS[@]} -lt 1 || ${#ARGS[@]} -gt 2 ]]; then
+if [[ ${#ARGS[@]} -lt 2 || ${#ARGS[@]} -gt 3 ]]; then
   usage
 fi
 
-FQDN="${ARGS[0]}"
-SSH_TARGET="${ARGS[1]:-$FQDN}"
+IPV4="${ARGS[0]}"
+IPV6="${ARGS[1]}"
+SSH_TARGET="${ARGS[2]:-$IPV4}"
 
-if [[ "$FQDN" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-  echo "The first argument is the flake name, not the server address." >&2
-  echo "Example: $0 node1.dome.ms $FQDN" >&2
+if [[ ! "$IPV4" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  echo "Invalid ipv4: $IPV4" >&2
   exit 1
 fi
 
-if [[ ! "$FQDN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$FQDN" != *.* || "$FQDN" == *..* ]]; then
-  echo "Invalid fqdn: $FQDN" >&2
+if [[ ! "$IPV6" =~ : ]]; then
+  echo "Invalid ipv6: $IPV6" >&2
   exit 1
 fi
 
@@ -75,9 +77,83 @@ need sops
 need openssl
 need ssh-keygen
 need python3
+need nix-instantiate
 if [[ "$PREPARE_ONLY" -eq 0 ]]; then
   need nixos-anywhere
 fi
+
+export IPV4 IPV6
+eval "$(python3 - << 'PY'
+import json
+import os
+import random
+import subprocess
+from pathlib import Path
+
+names = json.loads(
+    subprocess.check_output(
+        [
+            "nix-instantiate",
+            "--eval",
+            "--json",
+            "--expr",
+            "builtins.fromJSON (builtins.toJSON (import ./lib/names.nix))",
+        ],
+        text=True,
+    )
+)
+adjectives = names["adjectives"]
+animals = names["animals"]
+
+def hash_fqdn(fqdn: str) -> int:
+    import hashlib
+    return (int(hashlib.sha256(fqdn.encode()).hexdigest()[:6], 16) % 1000) + 1
+
+existing = {}
+nodes_dir = Path("nodes")
+nodes_dir.mkdir(exist_ok=True)
+for path in nodes_dir.glob("*.nix"):
+    fqdn = path.name[: -len(".nix")]
+    text = path.read_text()
+    existing[fqdn] = hash_fqdn(fqdn)
+
+taken_names = set(existing)
+taken_offsets = set(existing.values())
+
+for _ in range(10000):
+    adjective = random.choice(adjectives)
+    animal = random.choice(animals)
+    label = f"{adjective}-{animal}"
+    fqdn = f"{label}.dome.ms"
+    if fqdn in taken_names:
+        continue
+    offset = hash_fqdn(fqdn)
+    if offset in taken_offsets:
+        continue
+    print(f"FQDN={fqdn}")
+    print(f"LABEL={label}")
+    print(f"OFFSET={offset}")
+    break
+else:
+    raise SystemExit("could not find a free adjective-animal name")
+PY
+)"
+
+if [[ -z "${FQDN:-}" || -z "${LABEL:-}" ]]; then
+  echo "Failed to generate a node name" >&2
+  exit 1
+fi
+
+echo "[+] Generated name: $FQDN"
+
+NODE_FILE="nodes/${FQDN}.nix"
+cat > "$NODE_FILE" <<EOF
+{
+  ipv4 = "${IPV4}";
+  ipv6 = "${IPV6}";
+}
+EOF
+echo "[+] Wrote $NODE_FILE"
 
 fqdn_to_host_path() {
   local fqdn=$1
@@ -100,16 +176,15 @@ scaffold_host() {
   if [[ -f "$HOST_PATH/configuration.nix" ]]; then
     return
   fi
-  local template
-  template="$(find hosts -mindepth 2 -name configuration.nix -printf '%h\n' 2>/dev/null | head -n 1 || true)"
-  install -d "$HOST_PATH"
-  if [[ -n "$template" && -f "$template/configuration.nix" && -f "$template/disko.nix" ]]; then
-    cp "$template/configuration.nix" "$template/disko.nix" "$HOST_PATH/"
-    echo "[+] Created $HOST_PATH from $template"
-  else
-    echo "No host template under hosts/ to copy for $FQDN" >&2
+  local template="templates/host"
+  if [[ ! -f "$template/configuration.nix" || ! -f "$template/disko.nix" ]]; then
+    echo "Missing host template at $template" >&2
     exit 1
   fi
+  install -d "$HOST_PATH"
+  sed "s|@IPV6@|${IPV6}|g" "$template/configuration.nix" > "$HOST_PATH/configuration.nix"
+  cp "$template/disko.nix" "$HOST_PATH/"
+  echo "[+] Created $HOST_PATH from $template"
 }
 
 scaffold_host
@@ -305,9 +380,12 @@ echo "[+] Host age key can decrypt cluster and host secrets"
 umask 077
 {
   echo "fqdn: $FQDN"
+  echo "ipv4: $IPV4"
+  echo "ipv6: $IPV6"
   echo "ssh_target: $SSH_CONN"
   echo "created: $(date -Is)"
   echo "host_path: $HOST_PATH"
+  echo "node_file: $NODE_FILE"
   echo
   echo "age_recipient: $AGE_RECIPIENT"
   echo
@@ -334,8 +412,8 @@ umask 077
 chmod 600 "$LOG"
 echo "[+] Wrote $LOG"
 
-git add -- .sops.yaml secrets/cluster.yaml "$HOST_PATH/configuration.nix" "$HOST_PATH/disko.nix" "$HOST_SECRET"
-echo "[+] Staged sops files and host config so the flake can see them"
+git add -- .sops.yaml secrets/cluster.yaml "$NODE_FILE" "$HOST_PATH/configuration.nix" "$HOST_PATH/disko.nix" "$HOST_SECRET"
+echo "[+] Staged sops files, node inventory, and host config so the flake can see them"
 
 if [[ "$PREPARE_ONLY" -eq 1 ]]; then
   echo "[✓] Prepared $FQDN"
@@ -414,4 +492,4 @@ EOF
 
 echo "[✓] Installed $FQDN"
 echo "[✓] Dump: $LOG"
-echo "[*] Commit and push the staged sops and host files so comin keeps this generation."
+echo "[*] Commit and push the staged sops, node, and host files so comin keeps this generation."

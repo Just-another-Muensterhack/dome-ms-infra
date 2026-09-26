@@ -48,11 +48,12 @@
           coreutils
           gawk
           gnugrep
+          util-linux
         ];
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
-          TimeoutStartSec = "5min";
+          TimeoutStartSec = "10min";
         };
         script = ''
           set -euo pipefail
@@ -64,9 +65,13 @@
             esac
           }
 
-          for _attempt in $(seq 1 60); do
+          shuffle_peers() {
+            grep -vxF "$self" /run/dome/peers | shuf || true
+          }
+
+          for _attempt in $(seq 1 120); do
             if [ ! -s /run/dome/self ]; then
-              echo "own address is not listed in ${config.dome.discovery.name} yet" >&2
+              echo "own address is not listed in /etc/dome/nodes yet" >&2
               sleep 5
               continue
             fi
@@ -83,7 +88,7 @@
             fi
 
             joined=0
-            for peer in $(grep -vxF "$self" /run/dome/peers || true); do
+            for peer in $(shuffle_peers); do
               endpoint=$(url "$peer" 2379)
               ${etcdctl} --endpoints "$endpoint" endpoint health >/dev/null 2>&1 || continue
 
@@ -102,15 +107,24 @@
               exit 0
             fi
 
-            if [ "$(head -n 1 /run/dome/peers)" = "$self" ]; then
+            delay=$(( (RANDOM % 30) + 5 ))
+            echo "no healthy etcd peer; waiting ''${delay}s before considering bootstrap" >&2
+            sleep "$delay"
+
+            still_alone=1
+            for peer in $(shuffle_peers); do
+              endpoint=$(url "$peer" 2379)
+              if ${etcdctl} --endpoints "$endpoint" endpoint health >/dev/null 2>&1; then
+                still_alone=0
+                break
+              fi
+            done
+            if [ "$still_alone" = 1 ]; then
               printf '%s\n' \
                 "ETCD_INITIAL_CLUSTER=${fqdn}=$peer_url" \
                 "ETCD_INITIAL_CLUSTER_STATE=new" >> ${envFile}
               exit 0
             fi
-
-            echo "no healthy etcd peer reachable yet; retrying" >&2
-            sleep 5
           done
 
           echo "gave up waiting for etcd peers" >&2
@@ -128,6 +142,7 @@
           "dome-etcd-prepare.service"
         ];
         serviceConfig.EnvironmentFile = envFile;
+        serviceConfig.Environment = [ "ETCD_MAX_REQUEST_BYTES=4194304" ];
       };
     }
   );

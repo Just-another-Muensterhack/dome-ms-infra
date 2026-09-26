@@ -2,7 +2,8 @@
 {
   tls = {
     forceSSL = true;
-    enableACME = config.dome.acme.enable;
+    useACMEHost = lib.mkIf config.dome.acme.enable "dome.ms";
+    enableACME = false;
     sslCertificate = lib.mkIf (!config.dome.acme.enable) "${config.dome.pki.dir}/node.crt";
     sslCertificateKey = lib.mkIf (!config.dome.acme.enable) "${config.dome.pki.dir}/node.key";
   };
