@@ -31,12 +31,22 @@ let
     "status.dome.ms"
   ];
 
+  ipv4s = lib.unique (map (node: node.ipv4) nodes);
+  ipv6s = lib.unique (map (node: node.ipv6) nodes);
+
   rrBlock =
     name:
-    lib.concatMapStrings (node: ''
-      ${name}. 60 IN A ${node.ipv4}
-      ${name}. 60 IN AAAA ${node.ipv6}
-    '') nodes;
+    lib.concatMapStrings (ip: ''
+      ${name}. 60 IN A ${ip}
+    '') ipv4s
+    + lib.concatMapStrings (ip: ''
+      ${name}. 60 IN AAAA ${ip}
+    '') ipv6s;
+
+  nodeRr = node: ''
+    ${node.fqdn}. 60 IN A ${node.ipv4}
+    ${node.fqdn}. 60 IN AAAA ${node.ipv6}
+  '';
 
   staticZone = pkgs.writeText "dome.ms.static.zone" ''
     $ORIGIN dome.ms.
@@ -52,7 +62,7 @@ let
     @ 60 IN NS dns.dome.ms.
     ${rrBlock "dome.ms"}
     ${lib.concatMapStrings rrBlock (sharedNames ++ platformHosts)}
-    ${lib.concatMapStrings (node: rrBlock node.fqdn) nodes}
+    ${lib.concatMapStrings nodeRr nodes}
   '';
 
   renderZone = pkgs.writeShellScript "dome-dns-zone" ''
@@ -82,10 +92,12 @@ let
         | ${pkgs.gnused}/bin/sed 's|^/dome/nginx/||; s|\.conf$||'); do
         case "$name" in
           *.dome.ms|dome.ms)
-            ${lib.concatMapStrings (node: ''
-              printf '%s. 60 IN A %s\n' "$name" ${lib.escapeShellArg node.ipv4} >> "$dynamic"
-              printf '%s. 60 IN AAAA %s\n' "$name" ${lib.escapeShellArg node.ipv6} >> "$dynamic"
-            '') nodes}
+            ${lib.concatMapStrings (ip: ''
+              printf '%s. 60 IN A %s\n' "$name" ${lib.escapeShellArg ip} >> "$dynamic"
+            '') ipv4s}
+            ${lib.concatMapStrings (ip: ''
+              printf '%s. 60 IN AAAA %s\n' "$name" ${lib.escapeShellArg ip} >> "$dynamic"
+            '') ipv6s}
             ;;
         esac
       done

@@ -21,7 +21,11 @@ in
         message = "dome.nodes must contain at least one peer (nodes/*.nix or dome.nodes)";
       }
       (nodesLib.assertUniqueOffsets nodes)
-    ];
+    ]
+    ++ map (node: {
+      assertion = !lib.hasInfix "/" node.ipv4 && !lib.hasInfix "/" node.ipv6;
+      message = "${node.fqdn}: ipv4/ipv6 must be bare addresses without /prefix (got ${node.ipv4} / ${node.ipv6})";
+    }) (lib.attrValues nodes);
 
     environment.etc."dome/nodes" = {
       text = nodesLib.nodesFile nodes;

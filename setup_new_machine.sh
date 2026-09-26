@@ -4,8 +4,8 @@ set -euo pipefail
 usage() {
   echo "Usage: $0 [--prepare-only] <ipv4> <ipv6> [ssh-target]"
   echo
-  echo "  ipv4         public IPv4 address of the new machine"
-  echo "  ipv6         public IPv6 address of the new machine"
+  echo "  ipv4         public IPv4 address (optional /prefix, e.g. 46.62.154.20)"
+  echo "  ipv6         public IPv6 address (optional /prefix, e.g. 2a01:4f9:c010:82a3::/64)"
   echo "  ssh-target   install address (defaults to ipv4)"
   echo
   echo "Draws a free adjective-animal name (for example lurking-bear.dome.ms),"
@@ -35,19 +35,9 @@ if [[ ${#ARGS[@]} -lt 2 || ${#ARGS[@]} -gt 3 ]]; then
   usage
 fi
 
-IPV4="${ARGS[0]}"
-IPV6="${ARGS[1]}"
-SSH_TARGET="${ARGS[2]:-$IPV4}"
-
-if [[ ! "$IPV4" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-  echo "Invalid ipv4: $IPV4" >&2
-  exit 1
-fi
-
-if [[ ! "$IPV6" =~ : ]]; then
-  echo "Invalid ipv6: $IPV6" >&2
-  exit 1
-fi
+RAW_IPV4="${ARGS[0]}"
+RAW_IPV6="${ARGS[1]}"
+SSH_TARGET="${ARGS[2]:-$RAW_IPV4}"
 
 if [[ "$SSH_TARGET" == *" "* || "$SSH_TARGET" == *$'\n'* || -z "$SSH_TARGET" ]]; then
   echo "Invalid ssh target" >&2
@@ -82,7 +72,43 @@ if [[ "$PREPARE_ONLY" -eq 0 ]]; then
   need nixos-anywhere
 fi
 
-export IPV4 IPV6
+export RAW_IPV4 RAW_IPV6
+eval "$(python3 - << 'PY'
+import ipaddress
+import os
+import sys
+
+def split_addr(raw: str, version: int):
+    raw = raw.strip()
+    try:
+        iface = ipaddress.ip_interface(raw)
+    except ValueError as exc:
+        raise SystemExit(f"invalid ipv{version}: {raw}") from exc
+    if iface.version != version:
+        raise SystemExit(f"expected ipv{version}, got ipv{iface.version}: {raw}")
+    prefix = iface.network.prefixlen
+    if version == 4 and "/" not in raw:
+        prefix = 32
+    if version == 6 and "/" not in raw:
+        prefix = 64
+    return str(iface.ip), prefix
+
+ipv4, _ = split_addr(os.environ["RAW_IPV4"], 4)
+ipv6, ipv6_prefix = split_addr(os.environ["RAW_IPV6"], 6)
+print(f"IPV4={ipv4}")
+print(f"IPV6={ipv6}")
+print(f"IPV6_PREFIX={ipv6_prefix}")
+PY
+)"
+
+if [[ -z "${IPV4:-}" || -z "${IPV6:-}" || -z "${IPV6_PREFIX:-}" ]]; then
+  echo "Failed to normalize addresses" >&2
+  exit 1
+fi
+
+echo "[*] Addresses: ipv4=$IPV4 ipv6=$IPV6/$IPV6_PREFIX"
+
+export IPV4 IPV6 IPV6_PREFIX
 eval "$(python3 - << 'PY'
 import json
 import os
@@ -182,7 +208,10 @@ scaffold_host() {
     exit 1
   fi
   install -d "$HOST_PATH"
-  sed "s|@IPV6@|${IPV6}|g" "$template/configuration.nix" > "$HOST_PATH/configuration.nix"
+  sed \
+    -e "s|@IPV6@|${IPV6}|g" \
+    -e "s|@IPV6_PREFIX@|${IPV6_PREFIX}|g" \
+    "$template/configuration.nix" > "$HOST_PATH/configuration.nix"
   cp "$template/disko.nix" "$HOST_PATH/"
   echo "[+] Created $HOST_PATH from $template"
 }

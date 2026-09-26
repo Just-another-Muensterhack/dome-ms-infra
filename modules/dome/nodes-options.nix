@@ -8,9 +8,11 @@ let
       options = {
         ipv4 = mkOption {
           type = types.str;
+          description = "Host IPv4 address without prefix length.";
         };
         ipv6 = mkOption {
           type = types.str;
+          description = "Host IPv6 address without prefix length.";
         };
         fqdn = mkOption {
           type = types.str;
