@@ -103,7 +103,7 @@ in
           "NGINX_RESOLVER=127.0.0.1"
           "DOME_BASE_DOMAIN=${cfg.web.host}"
         ];
-        ExecStart = "${backendPkg}/bin/ms-dome";
+        ExecStart = "${backendPkg}/bin/ms-dome --timeout 360";
         Restart = "on-failure";
         RestartSec = "10s";
         WorkingDirectory = "/var/lib/dome-backend";
@@ -147,7 +147,9 @@ in
         include ${nginxLiveDir}/*.conf;
       '';
       virtualHosts.${cfg.backend.host} = http.tls // {
-        locations."/" = http.proxy cfg.backend.port;
+        locations."/" = http.proxy cfg.backend.port // {
+          proxyReadTimeout = "360s";
+        };
       };
     };
 
