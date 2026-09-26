@@ -31,7 +31,7 @@
       '';
       interfaces = {
         enp1s0 = {
-          addresses = [ "@IPV6@/@IPV6_PREFIX@" ];
+          addresses = [ "2a01:4f9:c010:82a3::/64" ];
           hooks = [ { name = "dhcp"; } ];
           link = {
             kind = "physical";

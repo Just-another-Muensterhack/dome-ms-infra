@@ -65,7 +65,10 @@ in
     services.gatus = {
       enable = true;
       settings = {
-        web.address = "127.0.0.1:8085";
+        web = {
+          address = "127.0.0.1";
+          port = 8085;
+        };
         storage = {
           type = "memory";
         };

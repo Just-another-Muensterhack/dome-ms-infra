@@ -4,9 +4,29 @@ keys:
     - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
     - age1revy59xnwzqfukcukjqcu76kz7vflmncme4h4gykw7afv8wz4gvsydm3sp
   hosts:
+    - fqdn: rusty-falcon.dome.ms
+      age: age1ch3rfqtzgz2tp5p5w28hsac3gl3dgsynk0m98wejmy7udge7yuuqd9csp4
+      path_regex: 'hosts/ms/dome/rusty-falcon/secrets/[^/]+\.yaml$'
+    - fqdn: vivid-ibis.dome.ms
+      age: age1w8sxnqyqmwueejfctry0hxl9wcf6t0zhj0g7877fn0993m3qu54sakj5em
+      path_regex: 'hosts/ms/dome/vivid-ibis/secrets/[^/]+\.yaml$'
 creation_rules:
   - path_regex: 'secrets/cluster\.yaml$'
     key_groups:
       - age:
         - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
         - age1revy59xnwzqfukcukjqcu76kz7vflmncme4h4gykw7afv8wz4gvsydm3sp
+        - age1ch3rfqtzgz2tp5p5w28hsac3gl3dgsynk0m98wejmy7udge7yuuqd9csp4
+        - age1w8sxnqyqmwueejfctry0hxl9wcf6t0zhj0g7877fn0993m3qu54sakj5em
+  - path_regex: 'hosts/ms/dome/rusty-falcon/secrets/[^/]+\.yaml$'
+    key_groups:
+      - age:
+        - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
+        - age1revy59xnwzqfukcukjqcu76kz7vflmncme4h4gykw7afv8wz4gvsydm3sp
+        - age1ch3rfqtzgz2tp5p5w28hsac3gl3dgsynk0m98wejmy7udge7yuuqd9csp4
+  - path_regex: 'hosts/ms/dome/vivid-ibis/secrets/[^/]+\.yaml$'
+    key_groups:
+      - age:
+        - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
+        - age1revy59xnwzqfukcukjqcu76kz7vflmncme4h4gykw7afv8wz4gvsydm3sp
+        - age1w8sxnqyqmwueejfctry0hxl9wcf6t0zhj0g7877fn0993m3qu54sakj5em
