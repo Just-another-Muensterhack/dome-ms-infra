@@ -2,6 +2,7 @@
   imports = [
     ./initrd-unlock.nix
     ./acme.nix
+    ./dns.nix
     ./discovery.nix
     ./firewall.nix
     ./pki.nix
@@ -11,6 +12,7 @@
     ./keycloak.nix
     ./backend.nix
     ./web.nix
+    ./status.nix
     ./sync.nix
   ];
 }

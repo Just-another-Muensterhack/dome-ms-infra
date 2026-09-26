@@ -20,7 +20,8 @@ let
   );
   stateRoot = "/var/lib/dome.ms";
   mediaRoot = "${stateRoot}/data";
-  nginxConfigDir = "${stateRoot}/nginx";
+  nginxConfigDir = "${stateRoot}/nginx-desired";
+  nginxLiveDir = "${stateRoot}/nginx";
   nginxTemplateDir = pkgs.runCommand "dome-nginx-templates" { } ''
     mkdir -p $out
     cp ${./nginx/static.conf} $out/static.conf
@@ -66,6 +67,7 @@ in
       "d ${stateRoot} 0755 dome dome -"
       "d ${mediaRoot} 0755 dome dome -"
       "d ${nginxConfigDir} 0755 dome dome -"
+      "d ${nginxLiveDir} 0755 dome dome -"
     ];
 
     systemd.services.dome-backend = {
@@ -91,6 +93,8 @@ in
           "NGINX_MEDIA_ROOT=${mediaRoot}"
           "NGINX_CONFIG_DIR=${nginxConfigDir}"
           "NGINX_TEMPLATE_DIR=${nginxTemplateDir}"
+          "NGINX_CERT_ROOT=/var/lib/dome/certs/live"
+          "NGINX_RESOLVER=127.0.0.1"
           "DOME_BASE_DOMAIN=${cfg.web.host}"
         ];
         ExecStart = "${backendPkg}/bin/ms-dome";
@@ -101,9 +105,40 @@ in
       };
     };
 
+    systemd.services.dome-sync-nginx = {
+      description = "Render dome nginx site configs from the database";
+      after = [
+        "dome-backend.service"
+        "postgresql.service"
+      ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = "dome";
+        Group = "dome";
+        EnvironmentFile = config.sops.templates."dome-backend.env".path;
+        Environment = [
+          "MEDIA_ROOT=${mediaRoot}"
+          "NGINX_MEDIA_ROOT=${mediaRoot}"
+          "NGINX_CONFIG_DIR=${nginxConfigDir}"
+          "NGINX_TEMPLATE_DIR=${nginxTemplateDir}"
+          "NGINX_CERT_ROOT=/var/lib/dome/certs/live"
+          "NGINX_RESOLVER=127.0.0.1"
+        ];
+        ExecStart = "${backendPkg}/bin/ms-dome-manage sync_nginx";
+      };
+    };
+
+    systemd.timers.dome-sync-nginx = {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "2min";
+        OnUnitActiveSec = config.dome.sync.interval;
+      };
+    };
+
     services.nginx = {
       commonHttpConfig = ''
-        include ${nginxConfigDir}/*.conf;
+        include ${nginxLiveDir}/*.conf;
       '';
       virtualHosts.${cfg.backend.host} = http.tls // {
         locations."/" = http.proxy cfg.backend.port;
@@ -113,7 +148,7 @@ in
     systemd.paths.dome-nginx-reload = {
       wantedBy = [ "multi-user.target" ];
       pathConfig = {
-        PathChanged = nginxConfigDir;
+        PathChanged = nginxLiveDir;
         Unit = "dome-nginx-reload.service";
       };
     };

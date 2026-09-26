@@ -1,8 +1,8 @@
 # Deployment
 
-Every host under `hosts/` is wired by `flake.nix`: it imports `modules/base.nix` and sets `dome.enable = true`. That turns on comin, discovery, PKI, etcd, Postgres, Keycloak, the dome.ms backend/web, and initrd unlock. Host configs only need disko, boot, and kernel modules.
+Every host under `hosts/` is wired by `flake.nix`: it imports `modules/base.nix` and sets `dome.enable = true`. That turns on comin, discovery, PKI, etcd, Postgres, Knot DNS, Keycloak, the dome.ms backend/web, status, and initrd unlock. Host configs only need disko, boot, and kernel modules.
 
-Peers are discovered at runtime from the A/AAAA records of `nodes.dome.ms`. The only static inputs are the sops secrets and DNS.
+Peers come from `nodes/<fqdn>.nix` (unordered adjective-animal names). Comin rolls a single git commit to every node. The only other static inputs are the sops secrets and registrar glue for `ns.dome.ms` / `dns.dome.ms`.
 
 All commands run inside `nix develop`.
 
@@ -27,17 +27,17 @@ age-keygen -y ~/.config/sops/age/keys.txt
 ```yaml
 keys:
   - &admin age1...
-  - &node1 age1...
+  - &lurking-bear age1...
 creation_rules:
   - path_regex: secrets/cluster\.yaml$
     key_groups:
-      - age: [*admin, *node1]
-  - path_regex: hosts/ms/dome/node1/secrets/[^/]+\.yaml$
+      - age: [*admin, *lurking-bear]
+  - path_regex: hosts/ms/dome/lurking-bear/secrets/[^/]+\.yaml$
     key_groups:
-      - age: [*admin, *node1]
+      - age: [*admin, *lurking-bear]
 ```
 
-Every node's recipient goes into the cluster rule. Each node gets its own host rule.
+Every node's recipient goes into the cluster rule. Each node gets its own host rule. `setup_new_machine.sh` maintains this file.
 
 ## 4. Cluster secrets (once)
 
@@ -69,28 +69,30 @@ keycloak:
   client_secret: msdome-secret
 ```
 
-Each node issues its own TLS certificate from this CA at boot (`dome-pki`). Certificates are valid for 365 days and renew 30 days before expiry.
+Each node issues its own TLS certificate from this CA at boot (`dome-pki`). Certificates are valid for 365 days and renew 30 days before expiry. Public HTTPS uses Let's Encrypt DNS-01 against the in-cluster Knot zone.
 
 With `dome.apps.enable` (default), every node also runs Keycloak (Postgres DB `keycloak`), the Django backend (DB `dome`), and the static web frontend — packages come from `dome-ms-backend`.
 
 ## 5. DNS
 
-For every node:
+Point the `dome.ms` registrar at the cluster:
 
-- `<node>.dome.ms` A/AAAA: its address (SSH, install target)
-- `nodes.dome.ms` A/AAAA: one record per node
+- NS: `ns.dome.ms` and `dns.dome.ms`
+- Glue A/AAAA for those names: every node’s public address
 
-A node only starts etcd and Postgres once its own address appears in `nodes.dome.ms`.
+Each node serves the same zone. Platform names (`dome.ms`, `api`, `id`, `status`, every peer) are A/AAAA to all node addresses. ACME TXT records for the `dome.ms` / `*.dome.ms` DNS-01 cert live under `/dome/dns/` in etcd and are rendered into the zone.
+
+Customer domains outside `dome.ms` use HTTP-01. Challenge files are published to etcd so every node can answer Let’s Encrypt no matter which A record is hit.
 
 ## 6. Add a node
 
 `dome.repo.url` in `modules/cluster.nix` must already point at this repo. From `nix develop`:
 
 ```bash
-./setup_new_machine.sh node2.dome.ms [ip]
+./setup_new_machine.sh <ipv4> <ipv6> [ssh-target]
 ```
 
-The script copies an existing host directory when `hosts/...` is missing, then generates an SSH host key and the age recipient. The first run also creates the admin age key, `.sops.yaml`, and `secrets/cluster.yaml`. Later nodes are added to those creation rules and the cluster file is rekeyed. Host config and encrypted secrets are staged so the flake can see them.
+The script draws a free adjective-animal name (for example `lurking-bear.dome.ms`), writes `nodes/<fqdn>.nix`, copies an existing host directory when `hosts/...` is missing, then generates an SSH host key and the age recipient. The first run also creates the admin age key, `.sops.yaml`, and `secrets/cluster.yaml`. Later nodes are added to those creation rules and the cluster file is rekeyed. Host config, node inventory, and encrypted secrets are staged so the flake can see them.
 
 A mode `0600` dump is written to `deploy-log/<fqdn>.log` (gitignored). It contains the host key, admin age identity, and decrypted cluster secrets. Re-running the script reuses `deploy-log/<fqdn>/`.
 
@@ -98,11 +100,11 @@ The script prompts for the stock machine's root password and passes it as `nixos
 
 Commit and push the staged files before relying on comin. The root disk is unencrypted, so the machine boots straight into the installed system.
 
-The first node whose address sorts first in `nodes.dome.ms` bootstraps etcd. Every later node joins the running cluster via `etcdctl member add`, and Postgres subscriptions to all peers are created automatically.
+Every node is equal. A peer with an empty etcd data directory joins any healthy member, or after a short random delay initializes a new cluster if none answer. Postgres subscriptions for `keycloak` and `dome` are created automatically. Nginx configs, static site files, and certificates sync over etcd on `dome.sync.interval`.
 
 ## 7. Remove a node
 
-1. Remove its record from `nodes.dome.ms`. Postgres subscriptions to it are dropped within one discovery interval.
+1. Delete its `nodes/<fqdn>.nix` and `hosts/...` directory, update `.sops.yaml`, rekey `secrets/cluster.yaml`, and push. Discovery, DNS, and subscriptions drop it on the next reconcile.
 2. On any remaining node:
 
 ```bash
@@ -114,7 +116,9 @@ etcdctl --endpoints https://127.0.0.1:2379 \
 etcdctl ... member remove <id>
 ```
 
-3. Remove its recipient from `.sops.yaml`, run `sops updatekeys secrets/cluster.yaml`, delete its `hosts/` directory, and push.
+## 8. Postgres 16 → 18
+
+Nodes that still have `/var/lib/postgresql/16` run `dome-pg-upgrade` once before PostgreSQL 18 starts (`pg_upgrade --link`). Fresh installs use 18 directly.
 
 ## Ports
 
@@ -122,6 +126,7 @@ etcdctl ... member remove <id>
 | --------- | ---------------------- |
 | 22        | everyone               |
 | 2222      | everyone (initrd only) |
+| 53        | everyone (Knot DNS)    |
 | 80, 443   | everyone               |
 | 3000      | everyone (web)         |
 | 8000      | everyone (backend)     |

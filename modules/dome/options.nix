@@ -35,10 +35,6 @@ in
     };
 
     discovery = {
-      name = mkOption {
-        type = types.str;
-        default = "nodes.dome.ms";
-      };
       interval = mkOption {
         type = types.str;
         default = "1min";

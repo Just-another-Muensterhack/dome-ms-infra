@@ -4,29 +4,9 @@ keys:
     - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
     - age1revy59xnwzqfukcukjqcu76kz7vflmncme4h4gykw7afv8wz4gvsydm3sp
   hosts:
-    - fqdn: node1.dome.ms
-      age: age15pvv0wmfmt8mq7nr2v8uek2zypzgscv4jev4wm86vr6e94xkga9qvdt4tk
-      path_regex: 'hosts/ms/dome/node1/secrets/[^/]+\.yaml$'
-    - fqdn: node2.dome.ms
-      age: age1evlf0396ranwlfrhd2fva9q747myjpsyh55rs2pr3skl70q69y8qm0s6lw
-      path_regex: 'hosts/ms/dome/node2/secrets/[^/]+\.yaml$'
 creation_rules:
   - path_regex: 'secrets/cluster\.yaml$'
     key_groups:
       - age:
         - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
         - age1revy59xnwzqfukcukjqcu76kz7vflmncme4h4gykw7afv8wz4gvsydm3sp
-        - age15pvv0wmfmt8mq7nr2v8uek2zypzgscv4jev4wm86vr6e94xkga9qvdt4tk
-        - age1evlf0396ranwlfrhd2fva9q747myjpsyh55rs2pr3skl70q69y8qm0s6lw
-  - path_regex: 'hosts/ms/dome/node1/secrets/[^/]+\.yaml$'
-    key_groups:
-      - age:
-        - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
-        - age1revy59xnwzqfukcukjqcu76kz7vflmncme4h4gykw7afv8wz4gvsydm3sp
-        - age15pvv0wmfmt8mq7nr2v8uek2zypzgscv4jev4wm86vr6e94xkga9qvdt4tk
-  - path_regex: 'hosts/ms/dome/node2/secrets/[^/]+\.yaml$'
-    key_groups:
-      - age:
-        - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
-        - age1revy59xnwzqfukcukjqcu76kz7vflmncme4h4gykw7afv8wz4gvsydm3sp
-        - age1evlf0396ranwlfrhd2fva9q747myjpsyh55rs2pr3skl70q69y8qm0s6lw

@@ -63,6 +63,7 @@ in
         http-port = cfg.keycloak.port;
         health-enabled = true;
         proxy-headers = "xforwarded";
+        cache = "local";
       };
     };
 

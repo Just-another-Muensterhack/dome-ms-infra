@@ -1,12 +1,11 @@
 # Local testing
 
-Two QEMU VMs share a VLAN. Names resolve from `/etc/hosts` (local DNS stand-in):
+Two QEMU VMs share a VLAN. Peers come from `dome.nodes` (same shape as `nodes/*.nix`):
 
-| Name            | Address     |
-| --------------- | ----------- |
-| `node1.dome.ms` | 192.168.1.1 |
-| `node2.dome.ms` | 192.168.1.2 |
-| `nodes.dome.ms` | both IPs    |
+| Name                   | Address      |
+| ---------------------- | ------------ |
+| `lurking-bear.dome.ms` | 192.168.67.1 |
+| `swift-fox.dome.ms`    | 192.168.67.2 |
 
 Comin and initrd unlock are off (`dome.testing.enable`). Each `./tests/run.sh` invocation generates a fresh random age key, CA, and replicator password.
 
@@ -36,9 +35,9 @@ Then, in the REPL:
 
 ```python
 start_all()
-node1.succeed("cat /run/dome/peers")
-node2.succeed("etcdctl --endpoints https://127.0.0.1:2379 --cacert /var/lib/dome/pki/ca.crt --cert /var/lib/dome/pki/node.crt --key /var/lib/dome/pki/node.key member list")
-node1.succeed("sudo -u postgres psql -c '\\dt'")
+lurkingbear.succeed("cat /run/dome/peers")
+swiftfox.succeed("etcdctl --endpoints https://127.0.0.1:2379 --cacert /var/lib/dome/pki/ca.crt --cert /var/lib/dome/pki/node.crt --key /var/lib/dome/pki/node.key member list")
+lurkingbear.succeed("sudo -u postgres psql -d dome -c '\\dt'")
 ```
 
 Exit the REPL to shut the VMs down.
@@ -48,9 +47,8 @@ Exit the REPL to shut the VMs down.
 1. `/run/dome/peers` and `/run/dome/self` exist on both nodes
 2. Node certs under `/var/lib/dome/pki/`
 3. etcd healthy on both; `member list` shows 2 members
-4. One logical subscription each way
-5. Insert on node1 appears on node2
-6. `getent ahosts nodes.dome.ms` returns both addresses
+4. One logical subscription each way on the `dome` database
+5. Insert on lurking-bear appears on swift-fox
 
 ## Fixture generation
 

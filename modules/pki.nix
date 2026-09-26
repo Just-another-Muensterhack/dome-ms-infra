@@ -52,7 +52,7 @@
           set -euo pipefail
 
           if [ ! -s /run/dome/self ]; then
-            echo "own address is not listed in ${config.dome.discovery.name} yet" >&2
+            echo "own address is not listed in /etc/dome/nodes yet" >&2
             exit 1
           fi
           self=$(cat /run/dome/self)
