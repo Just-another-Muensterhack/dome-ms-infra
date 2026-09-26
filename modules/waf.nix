@@ -7,6 +7,18 @@
 let
   cfg = config.dome.waf;
   crs = pkgs.modsecurity-crs;
+  libmodsecurity = pkgs.libmodsecurity.overrideAttrs (old: {
+    version = "3.0.16";
+    src = old.src.override {
+      rev = "v3.0.16";
+      hash = "sha256-KkUZ52IQ8kZPP4znvNX2kDCbYFBesmvV5i1tVgHFct8=";
+    };
+  });
+  modsecurity = pkgs.nginxModules.modsecurity // {
+    inputs = map (
+      input: if lib.getName input == "libmodsecurity" then libmodsecurity else input
+    ) pkgs.nginxModules.modsecurity.inputs;
+  };
   rules = pkgs.writeText "modsecurity.conf" ''
     SecRuleEngine ${if cfg.blocking then "On" else "DetectionOnly"}
 
@@ -47,7 +59,7 @@ in
 {
   config = lib.mkIf (config.dome.enable && config.dome.apps.enable) {
     services.nginx = {
-      additionalModules = [ pkgs.nginxModules.modsecurity ];
+      additionalModules = [ modsecurity ];
       appendHttpConfig = ''
         modsecurity ${if cfg.enable then "on" else "off"};
         ${lib.optionalString cfg.enable "modsecurity_rules_file ${rules};"}
