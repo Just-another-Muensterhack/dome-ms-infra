@@ -7,7 +7,6 @@
       device = "/dev/sda";
       efiSupport = true;
       efiInstallAsRemovable = true;
-      copyKernels = true;
     };
     efi.canTouchEfiVariables = false;
   };
@@ -22,6 +21,19 @@
     "virtio_scsi"
     "virtio_net"
   ];
+
+  networking = {
+    interfaces.enp1s0.ipv6.addresses = [
+      {
+        address = "2a01:4f9:c010:82a3::";
+        prefixLength = 64;
+      }
+    ];
+    defaultGateway6 = {
+      address = "fe80::1";
+      interface = "enp1s0";
+    };
+  };
 
   system.stateVersion = "26.05";
 }
