@@ -5,9 +5,10 @@
 }:
 let
   fixtures = import ./mk-fixtures.nix { inherit pkgs seed; };
-  adminSshKeys = pkgs.lib.filter (key: key != "") (
-    pkgs.lib.splitString "\n" (builtins.readFile inputs.adminKeys)
-  );
+  adminSshKeys = import ../admin-keys.nix {
+    inherit (pkgs) lib;
+    inherit inputs;
+  };
 
   mkNode =
     {

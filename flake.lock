@@ -1,6 +1,6 @@
 {
   "nodes": {
-    "adminKeys": {
+    "adminKeys-felixevers": {
       "flake": false,
       "locked": {
         "narHash": "sha256-XIvMACIq06adi+SkNpn80bPqVdXAyESPLYG8tsZtcgs=",
@@ -10,6 +10,18 @@
       "original": {
         "type": "file",
         "url": "https://github.com/felixevers.keys"
+      }
+    },
+    "adminKeys-schnitzel4": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-0IxBGbYUsDutAUS2PrrtF072XAmLhQNAwssUOBvpUoA=",
+        "type": "file",
+        "url": "https://github.com/schnitzel4.keys"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://github.com/schnitzel4.keys"
       }
     },
     "backend": {
@@ -177,7 +189,8 @@
     },
     "root": {
       "inputs": {
-        "adminKeys": "adminKeys",
+        "adminKeys-felixevers": "adminKeys-felixevers",
+        "adminKeys-schnitzel4": "adminKeys-schnitzel4",
         "backend": "backend",
         "comin": "comin",
         "disko": "disko",
