@@ -29,6 +29,8 @@ keycloak_db = secrets.token_urlsafe(32)
 dome_db = secrets.token_urlsafe(32)
 replicator = secrets.token_urlsafe(32)
 model_api_key = secrets.token_urlsafe(32)
+grafana_admin = secrets.token_urlsafe(32)
+grafana_secret_key = secrets.token_urlsafe(32)
 
 Path("cluster.yaml").write_text(f"""dome:
   ca_crt: |
@@ -44,6 +46,9 @@ postgres:
   replicator_password: {replicator}
 backend:
   model_api_key: {model_api_key}
+grafana:
+  admin_password: {grafana_admin}
+  secret_key: {grafana_secret_key}
 """)
 Path("host-secrets.yaml").write_text('placeholder: "true"\n')
 PY

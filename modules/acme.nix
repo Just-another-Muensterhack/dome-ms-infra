@@ -32,7 +32,10 @@ let
       apps.backend.host
       apps.keycloak.host
     ]
-    ++ [ "status.dome.ms" ]
+    ++ [
+      "status.dome.ms"
+      "grafana.dome.ms"
+    ]
   );
   domainArgs = lib.concatMapStringsSep " " (domain: "-d ${lib.escapeShellArg domain}") httpDomains;
   etcdEnv = ''
@@ -63,7 +66,10 @@ let
     };
   };
   vhostNames = lib.unique (
-    [ "status.dome.ms" ]
+    [
+      "status.dome.ms"
+      "grafana.dome.ms"
+    ]
     ++ lib.optionals apps.enable [
       apps.web.host
       apps.backend.host

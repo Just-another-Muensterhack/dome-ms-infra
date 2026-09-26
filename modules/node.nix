@@ -14,6 +14,7 @@
     ./web.nix
     ./waf.nix
     ./status.nix
+    ./monitoring.nix
     ./sync.nix
   ];
 }

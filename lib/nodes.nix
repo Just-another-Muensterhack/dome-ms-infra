@@ -66,6 +66,7 @@ let
     "dns.dome.ms"
     "acme.dome.ms"
     "status.dome.ms"
+    "grafana.dome.ms"
   ];
 
   hostsFile =

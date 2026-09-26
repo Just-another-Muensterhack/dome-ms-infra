@@ -1,0 +1,7 @@
+counter dome_waf_blocked_total by host
+
+/ModSecurity:.*(Access denied|Inbound Anomaly Score Exceeded)/ {
+  /\[hostname "(?P<host>[^"]+)"\]/ {
+    dome_waf_blocked_total[$host]++
+  }
+}

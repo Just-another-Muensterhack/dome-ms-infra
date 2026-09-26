@@ -1,0 +1,76 @@
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/brand/space-grotesk.ttf") format("truetype");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --background: 0 0% 93.3% !important;
+  --foreground: 0 0% 10.2% !important;
+  --card: 0 0% 97.3% !important;
+  --card-foreground: 0 0% 10.2% !important;
+  --popover: 0 0% 100% !important;
+  --popover-foreground: 0 0% 10.2% !important;
+  --primary: 163.3 51.8% 16.3% !important;
+  --primary-foreground: 68.8 80.2% 56.5% !important;
+  --secondary: 0 0% 93.3% !important;
+  --secondary-foreground: 163.3 51.8% 16.3% !important;
+  --muted: 0 0% 93.3% !important;
+  --muted-foreground: 0 0% 40% !important;
+  --accent: 163 24% 92% !important;
+  --accent-foreground: 163.3 51.8% 16.3% !important;
+  --border: 0 0% 80% !important;
+  --input: 0 0% 100% !important;
+  --ring: 163.3 51.8% 16.3% !important;
+  --radius: 0.75rem !important;
+}
+
+:root.dark {
+  --background: 0 0% 13.3% !important;
+  --foreground: 0 0% 90.2% !important;
+  --card: 0 0% 20% !important;
+  --card-foreground: 0 0% 90.2% !important;
+  --popover: 0 0% 20% !important;
+  --popover-foreground: 0 0% 90.2% !important;
+  --primary: 67 100% 40.4% !important;
+  --primary-foreground: 163.3 51.8% 16.3% !important;
+  --secondary: 0 0% 24.7% !important;
+  --secondary-foreground: 0 0% 90.2% !important;
+  --muted: 0 0% 24.7% !important;
+  --muted-foreground: 0 0% 60% !important;
+  --accent: 163 18% 24% !important;
+  --accent-foreground: 68.8 80.2% 56.5% !important;
+  --border: 0 0% 40% !important;
+  --input: 0 0% 24.7% !important;
+  --ring: 67 100% 40.4% !important;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Space Grotesk", Inter, system-ui, sans-serif;
+}
+
+header {
+  background: #143f33 !important;
+  border-color: #002c21 !important;
+}
+
+header h1 {
+  color: #f8f8f8 !important;
+}
+
+header img {
+  background: #f8f8f8;
+  border-radius: 0.75rem;
+}
+
+footer a {
+  color: #143f33 !important;
+}
+
+:root.dark footer a {
+  color: #b6ce00 !important;
+}

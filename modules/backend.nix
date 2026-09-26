@@ -117,6 +117,7 @@ in
           "NGINX_CERT_ROOT=/var/lib/dome/certs/live"
           "NGINX_RESOLVER=127.0.0.1"
           "DOME_BASE_DOMAIN=${cfg.web.host}"
+          "PROMETHEUS_URL=http://127.0.0.1:9090"
         ];
         ExecStart = "${backendPkg}/bin/ms-dome --timeout 360";
         Restart = "on-failure";

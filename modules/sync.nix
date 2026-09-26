@@ -50,7 +50,11 @@ let
       if [ "$remote" = "$hash" ]; then
         return 0
       fi
-      $etcdctl put "$key" < "$file" >/dev/null
+      if [ "$size" -eq 0 ]; then
+        $etcdctl put "$key" "" >/dev/null
+      else
+        $etcdctl put "$key" < "$file" >/dev/null
+      fi
       $etcdctl put "$key.hash" "$hash" >/dev/null
     }
 

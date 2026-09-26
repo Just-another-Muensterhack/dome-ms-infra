@@ -1,9 +1,16 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  inputs,
+  ...
+}:
 let
   cfg = config.dome;
   http = import ./apps/http.nix { inherit config lib; };
   nodes = lib.attrValues cfg.nodes;
   statusHost = "status.dome.ms";
+  brand = "${inputs.backend}/web/public";
+  theme = builtins.readFile ./status.css;
 
   endpoint =
     {
@@ -91,12 +98,47 @@ in
         storage = {
           type = "memory";
         };
+        ui = {
+          title = "Status | dome.ms";
+          description = "Status of dome.ms nodes, services, and certificates.";
+          header = "dome.ms";
+          "dashboard-heading" = "Status";
+          "dashboard-subheading" = "Nodes, services, and certificates.";
+          logo = "/brand/favicon.svg";
+          link = "https://dome.ms";
+          favicon = {
+            default = "/brand/favicon.ico";
+            size16x16 = "/brand/favicon.svg";
+            size32x32 = "/brand/favicon.svg";
+          };
+          "custom-css" = theme;
+        };
         endpoints = nodeEndpoints ++ serviceEndpoints ++ apiEndpoint ++ certEndpoints;
       };
     };
 
     services.nginx.virtualHosts.${statusHost} = http.tls // {
-      locations."/" = http.proxy 8085;
+      locations = {
+        "= /brand/favicon.svg" = {
+          alias = "${brand}/favicon.svg";
+          extraConfig = ''
+            default_type image/svg+xml;
+          '';
+        };
+        "= /brand/favicon.ico" = {
+          alias = "${brand}/favicon.ico";
+          extraConfig = ''
+            default_type image/x-icon;
+          '';
+        };
+        "= /brand/space-grotesk.ttf" = {
+          alias = "${brand}/fonts/SpaceGrotesk-VariableFont_wght.ttf";
+          extraConfig = ''
+            default_type font/ttf;
+          '';
+        };
+        "/" = http.proxy 8085;
+      };
     };
   };
 }

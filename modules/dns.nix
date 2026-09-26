@@ -29,6 +29,7 @@ let
     "dns.dome.ms"
     "acme.dome.ms"
     "status.dome.ms"
+    "grafana.dome.ms"
   ];
 
   ipv4s = lib.unique (map (node: node.ipv4) nodes);
