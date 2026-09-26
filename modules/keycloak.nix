@@ -41,6 +41,66 @@ let
   initialHosts = lib.concatMapStringsSep "," (peer: "${peer.ipv4}[${toString jgroupsPort}]") (
     lib.attrValues config.dome.nodes
   );
+  pg = config.services.postgresql.package;
+  adoptChangelog = pkgs.writeShellScript "keycloak-adopt-changelog" ''
+    set -euo pipefail
+    kc_pass=$(cat "$CREDENTIALS_DIRECTORY/kc")
+    rep_pass=$(cat "$CREDENTIALS_DIRECTORY/rep")
+
+    local_sql() {
+      PGPASSWORD="$kc_pass" ${pg}/bin/psql \
+        -h 127.0.0.1 -U keycloak -d keycloak -v ON_ERROR_STOP=1 -tA "$@"
+    }
+
+    if [ "$(local_sql -c "SELECT to_regclass('public.client') IS NOT NULL")" != t ]; then
+      exit 0
+    fi
+
+    recorded=$(local_sql -c "SELECT CASE WHEN to_regclass('public.databasechangelog') IS NULL THEN 0 ELSE (SELECT count(*) FROM public.databasechangelog WHERE id = '1.0.0.Final-KEYCLOAK-5461') END")
+    if [ "$recorded" != 0 ]; then
+      exit 0
+    fi
+
+    if [ ! -s /run/dome/peers ]; then
+      echo "keycloak schema is present but databasechangelog is not, and no peers are listed" >&2
+      exit 1
+    fi
+
+    dump=$(mktemp)
+    trap 'rm -f "$dump"' EXIT
+    adopted=0
+    while read -r peer; do
+      [ -n "$peer" ] || continue
+      PGPASSWORD="$rep_pass" ${pg}/bin/pg_isready -q -h "$peer" -p 5432 -U replicator || continue
+      count=$(PGPASSWORD="$rep_pass" ${pg}/bin/psql \
+        "host=$peer port=5432 dbname=keycloak user=replicator sslmode=verify-full sslrootcert=${pki}/ca.crt" \
+        -v ON_ERROR_STOP=1 -tA \
+        -c "SELECT count(*) FROM public.databasechangelog WHERE id = '1.0.0.Final-KEYCLOAK-5461'" \
+        2>/dev/null || true)
+      if [ "$count" != 1 ]; then
+        continue
+      fi
+      PGPASSWORD="$rep_pass" ${pg}/bin/pg_dump \
+        "host=$peer port=5432 dbname=keycloak user=replicator sslmode=verify-full sslrootcert=${pki}/ca.crt" \
+        --no-owner --no-privileges \
+        -t public.databasechangelog \
+        -t public.databasechangeloglock \
+        > "$dump"
+      adopted=1
+      break
+    done < /run/dome/peers
+
+    if [ "$adopted" != 1 ]; then
+      echo "keycloak schema is present but no peer has databasechangelog" >&2
+      exit 1
+    fi
+
+    local_sql -c "DROP TABLE IF EXISTS public.databasechangeloglock, public.databasechangelog;"
+    PGPASSWORD="$kc_pass" ${pg}/bin/psql \
+      -h 127.0.0.1 -U keycloak -d keycloak -v ON_ERROR_STOP=1 -f "$dump"
+    local_sql -c "UPDATE public.databasechangeloglock SET locked = false, lockgranted = NULL, lockedby = NULL;"
+    echo "adopted keycloak databasechangelog from a peer"
+  '';
   cacheConfig = pkgs.writeText "keycloak-cache.xml" ''
     <?xml version="1.0" encoding="UTF-8"?>
     <infinispan
@@ -132,6 +192,29 @@ in
       };
     };
 
+    systemd.services.dome-keycloak-changelog = {
+      description = "Adopt Keycloak Liquibase history for a replicated schema";
+      after = [
+        "postgresql.service"
+        "dome-pg-app-roles.service"
+        "dome-discovery.service"
+        "dome-pki.service"
+      ];
+      requires = [
+        "postgresql.service"
+        "dome-pg-app-roles.service"
+      ];
+      serviceConfig = {
+        Type = "oneshot";
+        LoadCredential = [
+          "kc:${config.sops.secrets."keycloak/db_password".path}"
+          "rep:${config.sops.secrets."postgres/replicator_password".path}"
+        ];
+      };
+      path = [ pkgs.coreutils ];
+      script = "${adoptChangelog}";
+    };
+
     systemd.services.dome-keycloak-jgroups = {
       description = "Keycloak cluster transport password";
       wantedBy = [ "multi-user.target" ];
@@ -168,12 +251,14 @@ in
         "network-online.target"
         "dome-discovery.service"
         "dome-pki.service"
+        "dome-keycloak-changelog.service"
         "dome-keycloak-jgroups.service"
         "postgresql-setup.service"
         "dome-pg-app-roles.service"
       ];
       wants = [ "network-online.target" ];
       requires = [
+        "dome-keycloak-changelog.service"
         "dome-keycloak-jgroups.service"
         "postgresql-setup.service"
         "dome-pg-app-roles.service"
