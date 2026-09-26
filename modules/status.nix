@@ -39,11 +39,19 @@ let
 
   serviceHosts = [
     "dome.ms"
-    "api.dome.ms"
     "id.dome.ms"
     statusHost
   ]
   ++ lib.optional (cfg.apps.enable && cfg.apps.publicHost != null) cfg.apps.publicHost;
+
+  apiEndpoint = lib.optional cfg.apps.enable (endpoint {
+    name = "${cfg.apps.web.host}/api";
+    group = "services";
+    url = "https://${cfg.apps.web.host}/api/";
+    conditions = [
+      "[STATUS] < 500"
+    ];
+  });
 
   serviceEndpoints = map (
     host:
@@ -83,7 +91,7 @@ in
         storage = {
           type = "memory";
         };
-        endpoints = nodeEndpoints ++ serviceEndpoints ++ certEndpoints;
+        endpoints = nodeEndpoints ++ serviceEndpoints ++ apiEndpoint ++ certEndpoints;
       };
     };
 

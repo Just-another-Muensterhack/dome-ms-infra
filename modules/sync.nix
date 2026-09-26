@@ -26,10 +26,15 @@ let
     etcdctl=${pkgs.etcd}/bin/etcdctl
     install -d -m 0755 ${desiredNginx} ${liveNginx} ${mediaRoot} ${certLive}
 
-    if ! $etcdctl endpoint health >/dev/null 2>&1; then
-      echo "etcd unavailable" >&2
-      exit 0
-    fi
+    etcd_ok=0
+    for endpoint in https://127.0.0.1:2379 https://[::1]:2379; do
+      export ETCDCTL_ENDPOINTS=$endpoint
+      if health=$($etcdctl endpoint health 2>&1); then
+        etcd_ok=1
+        break
+      fi
+      echo "etcd unavailable at $endpoint: $health" >&2
+    done
 
     publish_file() {
       local key=$1
@@ -126,47 +131,49 @@ let
       systemctl reload nginx.service || true
     }
 
-    publish_tree /dome/nginx ${desiredNginx}
-    publish_tree /dome/static ${mediaRoot}
+    if [ "$etcd_ok" = 1 ]; then
+      publish_tree /dome/nginx ${desiredNginx}
+      publish_tree /dome/static ${mediaRoot}
 
-    if [ -d /var/lib/acme ]; then
-      for cert_dir in /var/lib/acme/*/; do
-        [ -d "$cert_dir" ] || continue
-        case "$(basename "$cert_dir")" in
-          acme-challenge|http-lego|.lego|.minica) continue ;;
-        esac
-        publish_cert_dir "$cert_dir"
-      done
-    fi
-
-    if [ -d ${certLive} ]; then
-      for cert_dir in ${certLive}/*/; do
-        [ -d "$cert_dir" ] || continue
-        publish_cert_dir "$cert_dir"
-      done
-    fi
-
-    pull_tree /dome/nginx ${desiredNginx}
-    pull_tree /dome/static ${mediaRoot}
-
-    $etcdctl get /dome/certs/ --prefix --keys-only | while read -r key; do
-      case "$key" in
-        *.hash|"") continue ;;
-      esac
-      rest=''${key#/dome/certs/}
-      name=''${rest%%/*}
-      file=''${rest#*/}
-      [ "$name" != "$rest" ] || continue
-      [ -n "$name" ] && [ -n "$file" ] || continue
-      dest="${certLive}/$name/$file"
-      install -d -m 0755 "$(dirname "$dest")"
-      $etcdctl get "$key" --print-value-only > "$dest.tmp"
-      mv "$dest.tmp" "$dest"
-      if [ "$file" = "key.pem" ]; then
-        chmod 0640 "$dest"
-        chgrp nginx "$dest" 2>/dev/null || true
+      if [ -d /var/lib/acme ]; then
+        for cert_dir in /var/lib/acme/*/; do
+          [ -d "$cert_dir" ] || continue
+          case "$(basename "$cert_dir")" in
+            acme-challenge|http-lego|.lego|.minica) continue ;;
+          esac
+          publish_cert_dir "$cert_dir"
+        done
       fi
-    done
+
+      if [ -d ${certLive} ]; then
+        for cert_dir in ${certLive}/*/; do
+          [ -d "$cert_dir" ] || continue
+          publish_cert_dir "$cert_dir"
+        done
+      fi
+
+      pull_tree /dome/nginx ${desiredNginx}
+      pull_tree /dome/static ${mediaRoot}
+
+      $etcdctl get /dome/certs/ --prefix --keys-only | while read -r key; do
+        case "$key" in
+          *.hash|"") continue ;;
+        esac
+        rest=''${key#/dome/certs/}
+        name=''${rest%%/*}
+        file=''${rest#*/}
+        [ "$name" != "$rest" ] || continue
+        [ -n "$name" ] && [ -n "$file" ] || continue
+        dest="${certLive}/$name/$file"
+        install -d -m 0755 "$(dirname "$dest")"
+        $etcdctl get "$key" --print-value-only > "$dest.tmp"
+        mv "$dest.tmp" "$dest"
+        if [ "$file" = "key.pem" ]; then
+          chmod 0640 "$dest"
+          chgrp nginx "$dest" 2>/dev/null || true
+        fi
+      done
+    fi
 
     if [ -d ${certLive} ]; then
       for cert_dir in ${certLive}/*/; do
@@ -182,11 +189,15 @@ let
         *.dome.ms|dome.ms)
           if [ -f "${certLive}/dome.ms/fullchain.pem" ] || [ -f "${certLive}/$base/fullchain.pem" ]; then
             cp -f "$conf" ${liveNginx}/
+          else
+            echo "skip $base.conf; certificate not ready" >&2
           fi
           ;;
         *)
           if [ -f "${certLive}/$base/fullchain.pem" ]; then
             cp -f "$conf" ${liveNginx}/
+          else
+            echo "skip $base.conf; certificate not ready" >&2
           fi
           ;;
       esac
@@ -227,6 +238,7 @@ in
       timerConfig = {
         OnBootSec = cfg.interval;
         OnUnitActiveSec = cfg.interval;
+        AccuracySec = "1s";
       };
     };
 

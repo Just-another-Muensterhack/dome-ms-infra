@@ -154,6 +154,7 @@ in
       timerConfig = {
         OnBootSec = "2min";
         OnUnitActiveSec = config.dome.sync.interval;
+        AccuracySec = "1s";
       };
     };
 

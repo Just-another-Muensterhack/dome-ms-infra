@@ -68,7 +68,7 @@ in
     sync = {
       interval = mkOption {
         type = types.str;
-        default = "5min";
+        default = "30s";
       };
       command = mkOption {
         type = types.nullOr types.path;
