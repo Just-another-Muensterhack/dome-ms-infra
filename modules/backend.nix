@@ -93,13 +93,17 @@ in
       after = [
         "postgresql-setup.service"
         "dome-pg-app-roles.service"
+        "dome-pg-reconcile.service"
         "keycloak.service"
       ];
       requires = [
         "postgresql-setup.service"
         "dome-pg-app-roles.service"
       ];
-      wants = [ "keycloak.service" ];
+      wants = [
+        "dome-pg-reconcile.service"
+        "keycloak.service"
+      ];
       serviceConfig = {
         Type = "simple";
         User = "dome";

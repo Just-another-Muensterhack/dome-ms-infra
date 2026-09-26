@@ -109,7 +109,10 @@
       systemd.services.dome-pg-reconcile = {
         after = [
           "postgresql.service"
+          "postgresql-setup.service"
+          "dome-pg-app-roles.service"
           "dome-discovery.service"
+          "dome-pki.service"
         ];
         requires = [ "postgresql.service" ];
         path = [
@@ -124,15 +127,79 @@
         script = ''
           set -euo pipefail
 
-          [ -s /run/dome/self ] || exit 0
-          [ -s /run/dome/peers ] || exit 0
-          self=$(cat /run/dome/self)
+          [ -s /etc/dome/nodes ] || exit 0
           pass=$(cat ${passwordFile})
+          export PGPASSWORD="$pass"
 
           sql() {
             local db=$1
             shift
             psql -v ON_ERROR_STOP=1 -d "$db" -tA "$@"
+          }
+
+          peer_conn() {
+            printf 'host=%s port=5432 dbname=%s user=replicator sslmode=verify-full sslrootcert=%s' "$1" "$2" ${pki}/ca.crt
+          }
+
+          peer_sql() {
+            local peer=$1
+            local db=$2
+            shift 2
+            psql "$(peer_conn "$peer" "$db")" -v ON_ERROR_STOP=1 -tA "$@"
+          }
+
+          table_count() {
+            sql "$1" -c "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'"
+          }
+
+          peers=()
+          while read -r node _ ipv6; do
+            [ "$node" = ${lib.escapeShellArg fqdn} ] && continue
+            peers+=("$ipv6")
+          done < /etc/dome/nodes
+
+          bootstrap_db() {
+            local db=$1
+            shift
+            [ "$(table_count "$db")" = 0 ] || return 0
+
+            local source=""
+            for peer in "''${peers[@]}"; do
+              if [ "$(peer_sql "$peer" "$db" -c "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'" 2>/dev/null || echo 0)" != 0 ]; then
+                source=$peer
+                break
+              fi
+            done
+            [ -n "$source" ] || return 0
+
+            local owner dump
+            owner=$(sql postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = '$db'")
+            dump=$(mktemp)
+            pg_dump "$(peer_conn "$source" "$db")" \
+              --schema-only --no-owner --no-privileges --no-comments \
+              --no-publications --no-subscriptions > "$dump"
+            if [ "$#" -gt 0 ]; then
+              local tables=()
+              for table in "$@"; do
+                tables+=(--table "public.$table")
+              done
+              pg_dump "$(peer_conn "$source" "$db")" \
+                --data-only --no-owner --no-privileges "''${tables[@]}" >> "$dump"
+            fi
+            { printf 'SET ROLE %s;\n' "$owner"; cat "$dump"; } | psql -v ON_ERROR_STOP=1 -q -d "$db"
+            rm -f "$dump"
+            echo "bootstrapped $db schema from $source"
+          }
+
+          local_empty() {
+            local db=$1
+            for table in $(sql "$db" -c "SELECT format('%I.%I', schemaname, tablename) FROM pg_publication_tables WHERE pubname = 'cluster_pub'"); do
+              [ -z "$(sql "$db" -c "SELECT 1 FROM $table LIMIT 1")" ] || return 1
+            done
+          }
+
+          own_sub() {
+            sql "$1" -c "SELECT subname FROM pg_subscription WHERE subdbid = (SELECT oid FROM pg_database WHERE datname = current_database()) $2"
           }
 
           setup_role() {
@@ -147,16 +214,28 @@
           setup_db() {
             local db=$1
             shift
-            local skip=("$@")
+            local skip=" $* "
 
-            sql "$db" <<SQL
-          SELECT 'CREATE PUBLICATION cluster_pub FOR ALL TABLES WITH (publish_generated_columns = stored)'
-            WHERE NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'cluster_pub') \gexec
-          SQL
-
-            for table in "''${skip[@]}"; do
-              sql "$db" -c "ALTER PUBLICATION cluster_pub DROP TABLE IF EXISTS $table;" || true
+            local tables=()
+            for table in $(sql "$db" -c "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"); do
+              case "$skip" in
+                *" $table "*) ;;
+                *) tables+=("public.\"$table\"") ;;
+              esac
             done
+
+            local statements=""
+            if [ "$(sql "$db" -c "SELECT count(*) FROM pg_publication WHERE pubname = 'cluster_pub' AND puballtables")" != 0 ]; then
+              statements="DROP PUBLICATION cluster_pub;"
+            fi
+            if [ -n "$statements" ] || [ "$(sql "$db" -c "SELECT count(*) FROM pg_publication WHERE pubname = 'cluster_pub'")" = 0 ]; then
+              statements="$statements CREATE PUBLICATION cluster_pub WITH (publish = 'insert, update, delete', publish_generated_columns = stored);"
+            fi
+            statements="$statements ALTER PUBLICATION cluster_pub SET (publish = 'insert, update, delete');"
+            if [ "''${#tables[@]}" -gt 0 ]; then
+              statements="$statements ALTER PUBLICATION cluster_pub SET TABLE $(IFS=,; echo "''${tables[*]}");"
+            fi
+            sql "$db" -c "$statements"
 
             sql "$db" <<SQL
           DO \$\$
@@ -193,43 +272,56 @@
           ${lib.concatMapStrings (
             db:
             let
-              skip = skipTables.${db} or [ ];
+              skip = lib.escapeShellArgs (skipTables.${db} or [ ]);
             in
             ''
-              setup_db ${db} ${lib.escapeShellArgs skip}
+              bootstrap_db ${db} ${skip}
+              setup_db ${db} ${skip}
             ''
           ) appDbs}
 
           wanted=" "
-          while read -r peer; do
-            [ "$peer" = "$self" ] && continue
+          created=()
+          for peer in "''${peers[@]}"; do
             for db in ${lib.escapeShellArgs appDbs}; do
               sub="sub_$(printf '%s_%s' "$db" "$peer" | tr '.:' '__')"
               wanted="$wanted$sub "
 
               pg_isready -q -h "$peer" -U replicator || continue
+              peer_sql "$peer" "$db" -c "SELECT 1" > /dev/null 2>&1 || continue
 
-              if [ -z "$(sql "$db" -c "SELECT 1 FROM pg_subscription WHERE subname = '$sub'")" ]; then
-                for table in $(sql "$db" -c "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"); do
-                  case " $(sql "$db" -c "SELECT tablename FROM pg_publication_tables WHERE pubname = 'cluster_pub'" | tr '\n' ' ') " in
-                    *" $table "*) sql "$db" -c "TRUNCATE TABLE \"$table\" CASCADE;" || true ;;
-                  esac
-                done
-                sql "$db" -v conn="host=$peer port=5432 dbname=$db user=replicator password=$pass sslmode=verify-full sslrootcert=${pki}/ca.crt" <<SQL
-          CREATE SUBSCRIPTION $sub CONNECTION :'conn' PUBLICATION cluster_pub WITH (copy_data = true, origin = none, streaming = parallel);
+              if [ -z "$(own_sub "$db" "AND subname = '$sub'")" ]; then
+                [ "$(table_count "$db")" != 0 ] || continue
+                copy=false
+                if local_empty "$db"; then
+                  copy=true
+                fi
+                sql "$db" -v conn="$(peer_conn "$peer" "$db") password=$pass" <<SQL
+          CREATE SUBSCRIPTION $sub CONNECTION :'conn' PUBLICATION cluster_pub WITH (copy_data = $copy, origin = none, streaming = parallel);
           SQL
+                created+=("$db:$sub")
               else
-                sql "$db" -c "ALTER SUBSCRIPTION $sub REFRESH PUBLICATION WITH (copy_data = true);"
+                sql "$db" -c "ALTER SUBSCRIPTION $sub REFRESH PUBLICATION WITH (copy_data = false);"
               fi
             done
-          done < /run/dome/peers
+          done
+
+          for entry in "''${created[@]}"; do
+            db=''${entry%%:*}
+            sub=''${entry#*:}
+            for _ in $(seq 1 180); do
+              pending=$(sql "$db" -c "SELECT count(*) FROM pg_subscription_rel r JOIN pg_subscription s ON s.oid = r.srsubid WHERE s.subname = '$sub' AND r.srsubstate NOT IN ('r', 's')")
+              [ "$pending" = 0 ] && break
+              sleep 1
+            done
+          done
 
           for db in ${lib.escapeShellArgs appDbs}; do
-            for sub in $(sql "$db" -c "SELECT subname FROM pg_subscription WHERE subname LIKE 'sub\_%'"); do
+            for sub in $(own_sub "$db" "AND subname LIKE 'sub\_%'"); do
               case "$wanted" in
                 *" $sub "*) ;;
                 *)
-                  sql "$db" <<SQL
+                  sql "$db" -c "DROP SUBSCRIPTION $sub;" || sql "$db" <<SQL
           ALTER SUBSCRIPTION $sub DISABLE;
           ALTER SUBSCRIPTION $sub SET (slot_name = NONE);
           DROP SUBSCRIPTION $sub;

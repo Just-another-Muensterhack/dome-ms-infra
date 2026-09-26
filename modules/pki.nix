@@ -40,6 +40,8 @@
         ];
         path = with pkgs; [
           coreutils
+          gawk
+          gnused
           openssl
           systemd
         ];
@@ -56,13 +58,15 @@
             exit 1
           fi
           self=$(cat /run/dome/self)
+          ipSans=$(awk -v f=${fqdn} '$1 == f { print $2; print $3 }' /etc/dome/nodes | sort -u | sed 's/^/IP:/' | paste -sd, -)
+          [ -n "$ipSans" ] || ipSans="IP:$self"
 
           install -d -m 0755 "$(dirname ${dir})"
           install -d -m 0750 -g dome-pki ${dir}
           install -m 0644 ${secrets."dome/ca_crt".path} ${dir}/ca.crt
 
           if [ -f ${dir}/node.crt ] \
-            && [ "$(cat ${dir}/node.san 2>/dev/null || true)" = "$self" ] \
+            && [ "$(cat ${dir}/node.san 2>/dev/null || true)" = "$ipSans" ] \
             && openssl x509 -in ${dir}/node.crt -noout -checkend 2592000 >/dev/null; then
             exit 0
           fi
@@ -71,7 +75,7 @@
           trap 'rm -rf "$work"' EXIT
 
           printf '%s\n' \
-            "subjectAltName=IP:$self,IP:127.0.0.1,IP:::1${dnsSans}" \
+            "subjectAltName=$ipSans,IP:127.0.0.1,IP:::1${dnsSans}" \
             "extendedKeyUsage=serverAuth,clientAuth" \
             "keyUsage=critical,digitalSignature,keyEncipherment" > "$work/ext"
 
@@ -87,7 +91,7 @@
 
           install -m 0640 -g dome-pki "$work/node.key" ${dir}/node.key
           install -m 0644 "$work/node.crt" ${dir}/node.crt
-          printf '%s\n' "$self" > ${dir}/node.san
+          printf '%s\n' "$ipSans" > ${dir}/node.san
 
           ${lib.optionalString (config.dome.pki.reloadUnits != [ ]) ''
             systemctl try-reload-or-restart --no-block ${lib.escapeShellArgs config.dome.pki.reloadUnits}
