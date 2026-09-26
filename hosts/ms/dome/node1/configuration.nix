@@ -2,8 +2,14 @@
   imports = [ ./disko.nix ];
 
   boot.loader = {
-    systemd-boot.enable = true;
-    efi.canTouchEfiVariables = true;
+    grub = {
+      enable = true;
+      device = "/dev/sda";
+      efiSupport = true;
+      efiInstallAsRemovable = true;
+      copyKernels = true;
+    };
+    efi.canTouchEfiVariables = false;
   };
 
   boot.initrd.availableKernelModules = [

@@ -7,9 +7,9 @@ usage() {
   echo "  fqdn         flake target, for example node1.dome.ms"
   echo "  ssh-target   install address (defaults to fqdn)"
   echo
-  echo "Generates a 64-character LUKS passphrase, an SSH host key, and sops"
-  echo "recipients. Writes deploy-log/<fqdn>.log (mode 0600, gitignored)."
-  echo "Re-runs reuse deploy-log/<fqdn>/ so the disk key and host key stay put."
+  echo "Generates an SSH host key and sops recipients. Writes"
+  echo "deploy-log/<fqdn>.log (mode 0600, gitignored)."
+  echo "Re-runs reuse deploy-log/<fqdn>/ so the host key stays put."
   echo
   echo "  --prepare-only   write keys and secrets, do not install"
   echo "  ROOT_PASSWORD    current root password of the stock machine"
@@ -35,6 +35,12 @@ fi
 
 FQDN="${ARGS[0]}"
 SSH_TARGET="${ARGS[1]:-$FQDN}"
+
+if [[ "$FQDN" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  echo "The first argument is the flake name, not the server address." >&2
+  echo "Example: $0 node1.dome.ms $FQDN" >&2
+  exit 1
+fi
 
 if [[ ! "$FQDN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$FQDN" != *.* || "$FQDN" == *..* ]]; then
   echo "Invalid fqdn: $FQDN" >&2
@@ -119,20 +125,6 @@ else
   echo "[*] Reusing SSH host key in $STATE"
 fi
 chmod 600 "$STATE/ssh_host_ed25519_key"
-
-if [[ ! -f "$STATE/luks.key" ]]; then
-  openssl rand -base64 48 | tr -d '\n' > "$STATE/luks.key"
-  echo "[+] Generated 64-character LUKS passphrase"
-else
-  echo "[*] Reusing LUKS passphrase in $STATE/luks.key"
-fi
-chmod 600 "$STATE/luks.key"
-
-LUKS_LEN="$(wc -c < "$STATE/luks.key" | tr -d ' ')"
-if [[ "$LUKS_LEN" -ne 64 ]]; then
-  echo "LUKS passphrase in $STATE/luks.key is $LUKS_LEN chars, expected 64" >&2
-  exit 1
-fi
 
 AGE_RECIPIENT="$(ssh-to-age < "$STATE/ssh_host_ed25519_key.pub")"
 printf '%s\n' "$AGE_RECIPIENT" > "$STATE/age.pub"
@@ -317,9 +309,6 @@ umask 077
   echo "created: $(date -Is)"
   echo "host_path: $HOST_PATH"
   echo
-  echo "luks_passphrase: $(cat "$STATE/luks.key")"
-  echo "luks_chars: $LUKS_LEN"
-  echo
   echo "age_recipient: $AGE_RECIPIENT"
   echo
   echo "ssh_host_ed25519_pub:"
@@ -341,10 +330,6 @@ umask 077
   echo
   echo "cluster_secrets:"
   sops -d secrets/cluster.yaml
-  echo
-  echo "unlock_after_reboot:"
-  echo "  ssh -p 2222 root@$SSH_HOST systemd-tty-ask-password-agent"
-  echo "  luks_passphrase is at the top of this file"
 } > "$LOG"
 chmod 600 "$LOG"
 echo "[+] Wrote $LOG"
@@ -387,8 +372,8 @@ install -m 644 "$STATE/ssh_host_ed25519_key.pub" "$EXTRA_DIR/etc/ssh/ssh_host_ed
 
 NA_ARGS=(
   --extra-files "$EXTRA_DIR"
-  --disk-encryption-keys /tmp/storage.key "$STATE/luks.key"
   --flake ".#$FQDN"
+  --kexec-extra-flags -c
   -L
 )
 if [[ -n "${SSHPASS:-}" ]]; then
@@ -428,6 +413,5 @@ EOF
 } >> "${HOME}/.ssh/known_hosts"
 
 echo "[✓] Installed $FQDN"
-echo "[*] Unlock after reboot: ssh -p 2222 root@$SSH_HOST systemd-tty-ask-password-agent"
 echo "[✓] Dump: $LOG"
 echo "[*] Commit and push the staged sops and host files so comin keeps this generation."

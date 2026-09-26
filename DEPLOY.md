@@ -90,17 +90,13 @@ A node only starts etcd and Postgres once its own address appears in `nodes.dome
 ./setup_new_machine.sh node2.dome.ms [ip]
 ```
 
-The script copies an existing host directory when `hosts/...` is missing, then generates a 64-character LUKS passphrase, an SSH host key, and the age recipient. The first run also creates the admin age key, `.sops.yaml`, and `secrets/cluster.yaml`. Later nodes are added to those creation rules and the cluster file is rekeyed. Host config and encrypted secrets are staged so the flake can see them.
+The script copies an existing host directory when `hosts/...` is missing, then generates an SSH host key and the age recipient. The first run also creates the admin age key, `.sops.yaml`, and `secrets/cluster.yaml`. Later nodes are added to those creation rules and the cluster file is rekeyed. Host config and encrypted secrets are staged so the flake can see them.
 
-A mode `0600` dump is written to `deploy-log/<fqdn>.log` (gitignored). It contains the LUKS passphrase, host key, admin age identity, and decrypted cluster secrets. Re-running the script reuses `deploy-log/<fqdn>/`.
+A mode `0600` dump is written to `deploy-log/<fqdn>.log` (gitignored). It contains the host key, admin age identity, and decrypted cluster secrets. Re-running the script reuses `deploy-log/<fqdn>/`.
 
 The script prompts for the stock machine's root password and passes it as `nixos-anywhere --env-password`. Leave it empty to use an SSH key. `ROOT_PASSWORD` or `SSHPASS` skips the prompt. `--prepare-only` stops after keys and sops.
 
-Commit and push the staged files before relying on comin. After reboot the disk waits for the passphrase from the dump:
-
-```bash
-ssh -p 2222 root@node2.dome.ms systemd-tty-ask-password-agent
-```
+Commit and push the staged files before relying on comin. The root disk is unencrypted, so the machine boots straight into the installed system.
 
 The first node whose address sorts first in `nodes.dome.ms` bootstraps etcd. Every later node joins the running cluster via `etcdctl member add`, and Postgres subscriptions to all peers are created automatically.
 

@@ -22,11 +22,11 @@
         "uv2nix": "uv2nix"
       },
       "locked": {
-        "lastModified": 1790374775,
-        "narHash": "sha256-H+BQ+snlY7GOxP7Yf4mTxLz4VGvPkHH6B6v5rCJlOuY=",
+        "lastModified": 1790417331,
+        "narHash": "sha256-aAru5318V9Z7GJkmXcQRg7qNkk2rTDwKGdKSDyHpIuI=",
         "owner": "Just-another-Muensterhack",
         "repo": "dome-ms-backend",
-        "rev": "910c00d5ea9653aebce56f7c654d4b77120faed7",
+        "rev": "68ed569a399c620ebddef2fe443dbd71119ab61d",
         "type": "github"
       },
       "original": {
@@ -111,11 +111,11 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1790185690,
-        "narHash": "sha256-xJ+X4hBtOcAFGBOe5nAMyMUeF9foJBmIOu3NjBqBycU=",
+        "lastModified": 1790323409,
+        "narHash": "sha256-VVTPf+Hyd5ebpjBMHmrLMSBIeW6ls48Bqtosj7CNKLA=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "4975466d324710c576dc11ad614684e6bd8cad8e",
+        "rev": "e94cb152ed51bd6e24eb4a41f1460252beb52cd2",
         "type": "github"
       },
       "original": {

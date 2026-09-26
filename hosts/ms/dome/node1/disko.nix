@@ -5,6 +5,10 @@
     content = {
       type = "gpt";
       partitions = {
+        BIOS = {
+          size = "1M";
+          type = "EF02";
+        };
         ESP = {
           size = "512M";
           type = "EF00";
@@ -15,18 +19,12 @@
             mountOptions = [ "umask=0077" ];
           };
         };
-        luks = {
+        root = {
           size = "100%";
           content = {
-            type = "luks";
-            name = "crypted";
-            passwordFile = "/tmp/storage.key";
-            settings.allowDiscards = true;
-            content = {
-              type = "filesystem";
-              format = "ext4";
-              mountpoint = "/";
-            };
+            type = "filesystem";
+            format = "ext4";
+            mountpoint = "/";
           };
         };
       };

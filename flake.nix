@@ -107,6 +107,7 @@
                   dome = {
                     enable = true;
                     admin.sshKeys = adminSshKeys;
+                    acme.production = true;
                   };
                   networking.hostName = builtins.head (lib.splitString "." fqdn);
                   networking.domain = builtins.concatStringsSep "." (builtins.tail (lib.splitString "." fqdn));

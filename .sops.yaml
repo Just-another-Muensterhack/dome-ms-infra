@@ -3,17 +3,17 @@ keys:
   admins:
     - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
   hosts:
-    - fqdn: 46.62.154.20
-      age: age1qyuuqff4zr54lk8yea29er4c37ywe2cymtjzcgq35l02ujufva0suejf29
-      path_regex: 'hosts/20/154/62/46/secrets/[^/]+\.yaml$'
+    - fqdn: node1.dome.ms
+      age: age15pvv0wmfmt8mq7nr2v8uek2zypzgscv4jev4wm86vr6e94xkga9qvdt4tk
+      path_regex: 'hosts/ms/dome/node1/secrets/[^/]+\.yaml$'
 creation_rules:
   - path_regex: 'secrets/cluster\.yaml$'
     key_groups:
       - age:
         - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
-        - age1qyuuqff4zr54lk8yea29er4c37ywe2cymtjzcgq35l02ujufva0suejf29
-  - path_regex: 'hosts/20/154/62/46/secrets/[^/]+\.yaml$'
+        - age15pvv0wmfmt8mq7nr2v8uek2zypzgscv4jev4wm86vr6e94xkga9qvdt4tk
+  - path_regex: 'hosts/ms/dome/node1/secrets/[^/]+\.yaml$'
     key_groups:
       - age:
         - age1c9xuldm8rxssv00a0y9zav0fcjzujtqgtv2t0gkk4anutvuz3s3qry70pm
-        - age1qyuuqff4zr54lk8yea29er4c37ywe2cymtjzcgq35l02ujufva0suejf29
+        - age15pvv0wmfmt8mq7nr2v8uek2zypzgscv4jev4wm86vr6e94xkga9qvdt4tk
