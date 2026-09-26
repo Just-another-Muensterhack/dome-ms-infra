@@ -12,6 +12,7 @@
     ./keycloak.nix
     ./backend.nix
     ./web.nix
+    ./waf.nix
     ./status.nix
     ./sync.nix
   ];
