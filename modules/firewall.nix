@@ -6,10 +6,15 @@ in
 {
   config = lib.mkIf config.dome.enable {
     networking.firewall.allowedTCPPorts = [
+      22
+      53
       80
       443
     ]
     ++ ports;
+    networking.firewall.allowedUDPPorts = [ 53 ];
+
+    services.openssh.openFirewall = true;
 
     networking.nftables.tables.dome = {
       family = "inet";

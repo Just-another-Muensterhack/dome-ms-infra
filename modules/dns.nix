@@ -114,6 +114,12 @@ in
   config = lib.mkIf cfg.enable {
     networking.firewall.allowedUDPPorts = [ 53 ];
     networking.firewall.allowedTCPPorts = [ 53 ];
+    networking.nameservers = [
+      "1.1.1.1"
+      "8.8.8.8"
+      "2606:4700:4700::1111"
+      "2001:4860:4860::8888"
+    ];
 
     users.users.knot.extraGroups = [ "dome-pki" ];
 

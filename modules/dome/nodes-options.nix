@@ -14,6 +14,21 @@ let
           type = types.str;
           description = "Host IPv6 address without prefix length.";
         };
+        mac = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          description = "Primary NIC MAC address discovered at install time.";
+        };
+        iface = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          description = "Primary NIC name discovered at install time.";
+        };
+        gateway = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          description = "IPv4 default gateway discovered at install time.";
+        };
         fqdn = mkOption {
           type = types.str;
           default = name;

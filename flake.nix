@@ -141,6 +141,7 @@
               fd
               openssl
               python3
+              sshpass
             ];
           };
         }
