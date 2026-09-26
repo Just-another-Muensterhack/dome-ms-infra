@@ -10,8 +10,8 @@ let
   desiredNginx = "/var/lib/dome.ms/nginx-desired";
   certLive = "/var/lib/dome/certs/live";
   challengeDir = "/var/lib/acme/acme-challenge";
-  etcdctl =
-    "${pkgs.etcd}/bin/etcdctl --cacert ${pki}/ca.crt --cert ${pki}/node.crt --key ${pki}/node.key --endpoints https://127.0.0.1:2379";
+  etcdctl = "${pkgs.etcd}/bin/etcdctl --cacert ${pki}/ca.crt --cert ${pki}/node.crt --key ${pki}/node.key --endpoints https://127.0.0.1:2379";
+  reloadStamp = "/run/dome/dns-reload";
   dnsHook = pkgs.writeShellScript "dome-acme-dns" ''
     set -euo pipefail
     action=$1
@@ -19,11 +19,14 @@ let
     token=$3
     key="/dome/dns/''${domain}"
     name=$(printf '%s' "$domain" | sed 's/\.$//')
+    request_reload() {
+      date +%s > ${reloadStamp}
+    }
     case "$action" in
       present)
         ${etcdctl} put "$key" "$token" >/dev/null
-        ${pkgs.systemd}/bin/systemctl start dome-dns-zone.service || true
-        for _ in $(seq 1 60); do
+        request_reload
+        for _ in $(seq 1 90); do
           got=$(${pkgs.knot-dns}/bin/kdig +short @"127.0.0.1" TXT "$name" 2>/dev/null | tr -d '"' || true)
           if [ "$got" = "$token" ]; then
             exit 0
@@ -35,7 +38,7 @@ let
         ;;
       cleanup)
         ${etcdctl} del "$key" >/dev/null || true
-        ${pkgs.systemd}/bin/systemctl start dome-dns-zone.service || true
+        request_reload
         ;;
       *)
         echo "usage: $0 present|cleanup <domain> <token>" >&2
@@ -50,12 +53,14 @@ let
     set -euo pipefail
     install -d -m 0755 ${certLive} ${challengeDir}/.well-known/acme-challenge
     [ -d ${desiredNginx} ] || exit 0
-    server=${lib.escapeShellArg (
-      if cfg.production then
-        "https://acme-v02.api.letsencrypt.org/directory"
-      else
-        "https://acme-staging-v02.api.letsencrypt.org/directory"
-    )}
+    server=${
+      lib.escapeShellArg (
+        if cfg.production then
+          "https://acme-v02.api.letsencrypt.org/directory"
+        else
+          "https://acme-staging-v02.api.letsencrypt.org/directory"
+      )
+    }
     for dns in ${desiredNginx}/*.dns; do
       [ -e "$dns" ] || continue
       name=$(tr -d '\n' < "$dns")
@@ -95,7 +100,25 @@ in
       "d ${challengeDir} 0755 acme nginx -"
       "d ${challengeDir}/.well-known 0755 acme nginx -"
       "d ${challengeDir}/.well-known/acme-challenge 0755 acme nginx -"
+      "d /run/dome 0755 root root -"
+      "f ${reloadStamp} 0664 acme acme -"
     ];
+
+    systemd.paths.dome-dns-acme-reload = {
+      wantedBy = [ "multi-user.target" ];
+      pathConfig = {
+        PathModified = reloadStamp;
+        Unit = "dome-dns-zone-restart.service";
+      };
+    };
+
+    systemd.services.dome-dns-zone-restart = {
+      description = "Restart dome DNS zone render for ACME TXT updates";
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${pkgs.systemd}/bin/systemctl restart dome-dns-zone.service";
+      };
+    };
 
     security.acme = {
       acceptTerms = true;

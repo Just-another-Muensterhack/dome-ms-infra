@@ -144,7 +144,7 @@ in
 
     systemd.services.knot = {
       after = [ "dome-dns-zone.service" ];
-      requires = [ "dome-dns-zone.service" ];
+      wants = [ "dome-dns-zone.service" ];
     };
 
     systemd.services.dome-dns-zone = {
@@ -166,7 +166,6 @@ in
       ];
       serviceConfig = {
         Type = "oneshot";
-        RemainAfterExit = true;
         ExecStart = renderZone;
       };
     };
