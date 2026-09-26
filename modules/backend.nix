@@ -18,6 +18,14 @@ let
     ]
     ++ lib.optional (cfg.publicHost != null) cfg.publicHost
   );
+  stateRoot = "/var/lib/dome.ms";
+  mediaRoot = "${stateRoot}/data";
+  nginxConfigDir = "${stateRoot}/nginx";
+  nginxTemplateDir = pkgs.runCommand "dome-nginx-templates" { } ''
+    mkdir -p $out
+    cp ${./nginx/static.conf} $out/static.conf
+    cp ${./nginx/proxy.conf} $out/proxy.conf
+  '';
 in
 {
   config = lib.mkIf (config.dome.enable && cfg.enable) {
@@ -54,6 +62,12 @@ in
     };
     users.groups.dome = { };
 
+    systemd.tmpfiles.rules = [
+      "d ${stateRoot} 0755 dome dome -"
+      "d ${mediaRoot} 0755 dome dome -"
+      "d ${nginxConfigDir} 0755 dome dome -"
+    ];
+
     systemd.services.dome-backend = {
       description = "dome.ms backend";
       wantedBy = [ "multi-user.target" ];
@@ -72,6 +86,13 @@ in
         User = "dome";
         Group = "dome";
         EnvironmentFile = config.sops.templates."dome-backend.env".path;
+        Environment = [
+          "MEDIA_ROOT=${mediaRoot}"
+          "NGINX_MEDIA_ROOT=${mediaRoot}"
+          "NGINX_CONFIG_DIR=${nginxConfigDir}"
+          "NGINX_TEMPLATE_DIR=${nginxTemplateDir}"
+          "DOME_BASE_DOMAIN=${cfg.web.host}"
+        ];
         ExecStart = "${backendPkg}/bin/ms-dome";
         Restart = "on-failure";
         RestartSec = "10s";
@@ -80,8 +101,33 @@ in
       };
     };
 
-    services.nginx.virtualHosts.${cfg.backend.host} = http.tls // {
-      locations."/" = http.proxy cfg.backend.port;
+    services.nginx = {
+      commonHttpConfig = ''
+        include ${nginxConfigDir}/*.conf;
+      '';
+      virtualHosts.${cfg.backend.host} = http.tls // {
+        locations."/" = http.proxy cfg.backend.port;
+      };
+    };
+
+    systemd.paths.dome-nginx-reload = {
+      wantedBy = [ "multi-user.target" ];
+      pathConfig = {
+        PathChanged = nginxConfigDir;
+        Unit = "dome-nginx-reload.service";
+      };
+    };
+
+    systemd.services.dome-nginx-reload = {
+      description = "Reload nginx after dome site configs change";
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = pkgs.writeShellScript "dome-nginx-reload" ''
+          sleep 1
+          ${config.services.nginx.package}/bin/nginx -t -c /etc/nginx/nginx.conf
+          ${pkgs.systemd}/bin/systemctl try-reload-or-restart nginx.service
+        '';
+      };
     };
   };
 }
