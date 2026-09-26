@@ -2,65 +2,184 @@
   config,
   lib,
   pkgs,
+  fqdn,
   ...
 }:
 let
   cfg = config.dome.acme;
+  apps = config.dome.apps;
   pki = config.dome.pki.dir;
   desiredNginx = "/var/lib/dome.ms/nginx-desired";
   certLive = "/var/lib/dome/certs/live";
   challengeDir = "/var/lib/acme/acme-challenge";
-  etcdctl = "${pkgs.etcd}/bin/etcdctl --cacert ${pki}/ca.crt --cert ${pki}/node.crt --key ${pki}/node.key --endpoints https://127.0.0.1:2379";
-  reloadStamp = "/run/dome/dns-reload";
-  dnsHook = pkgs.writeShellScript "dome-acme-dns" ''
-    set -euo pipefail
-    action=$1
-    domain=$2
-    token=$3
-    key="/dome/dns/''${domain}"
-    name=$(printf '%s' "$domain" | sed 's/\.$//')
-    request_reload() {
-      date +%s > ${reloadStamp}
-    }
-    case "$action" in
-      present)
-        ${etcdctl} put "$key" "$token" >/dev/null
-        request_reload
-        for _ in $(seq 1 90); do
-          got=$(${pkgs.knot-dns}/bin/kdig +short @"127.0.0.1" TXT "$name" 2>/dev/null | tr -d '"' || true)
-          if [ "$got" = "$token" ]; then
-            exit 0
-          fi
-          sleep 2
-        done
-        echo "TXT record for $name did not appear" >&2
-        exit 1
-        ;;
-      cleanup)
-        ${etcdctl} del "$key" >/dev/null || true
-        request_reload
-        ;;
-      *)
-        echo "usage: $0 present|cleanup <domain> <token>" >&2
-        exit 1
-        ;;
-    esac
+  challengePort = 8099;
+  certName = "dome.ms";
+  acmeServer =
+    if cfg.production then
+      "https://acme-v02.api.letsencrypt.org/directory"
+    else
+      "https://acme-staging-v02.api.letsencrypt.org/directory";
+  peerIps = map (node: node.ipv4) (
+    lib.filter (node: node.fqdn != fqdn) (lib.attrValues config.dome.nodes)
+  );
+  httpDomains = lib.unique (
+    [ certName ]
+    ++ lib.optionals apps.enable [
+      apps.web.host
+      apps.backend.host
+      apps.keycloak.host
+    ]
+    ++ [ "status.dome.ms" ]
+  );
+  domainArgs = lib.concatMapStringsSep " " (domain: "-d ${lib.escapeShellArg domain}") httpDomains;
+  etcdEnv = ''
+    export ETCDCTL_CACERT=${pki}/ca.crt
+    export ETCDCTL_CERT=${pki}/node.crt
+    export ETCDCTL_KEY=${pki}/node.key
+    export ETCDCTL_ENDPOINTS=https://127.0.0.1:2379
   '';
-  execEnv = pkgs.writeText "dome-acme-exec.env" ''
-    EXEC_PATH=${dnsHook}
+  challengeFileLocation = {
+    root = challengeDir;
+    extraConfig = "default_type text/plain;";
+  };
+  challengeLocations = {
+    "/.well-known/acme-challenge/" = challengeFileLocation // {
+      extraConfig = ''
+        default_type text/plain;
+        ${lib.optionalString (peerIps != [ ]) "try_files $uri @dome_acme_peers;"}
+      '';
+    };
+  }
+  // lib.optionalAttrs (peerIps != [ ]) {
+    "@dome_acme_peers" = {
+      proxyPass = "http://dome_acme_peers";
+      extraConfig = ''
+        proxy_next_upstream error timeout http_404;
+        proxy_set_header Host $host;
+      '';
+    };
+  };
+  vhostNames = lib.unique (
+    [ "status.dome.ms" ]
+    ++ lib.optionals apps.enable [
+      apps.web.host
+      apps.backend.host
+      apps.keycloak.host
+    ]
+  );
+  issueLocked = pkgs.writeShellScript "dome-acme-http-locked" ''
+    set -euo pipefail
+    ${etcdEnv}
+    etcdctl=${pkgs.etcd}/bin/etcdctl
+    openssl=${pkgs.openssl}/bin/openssl
+    dest=/var/lib/acme/${certName}
+    state=/var/lib/acme/http-lego
+    live=${certLive}/${certName}
+
+    is_public() {
+      local pem=$1 issuer end end_epoch now
+      [ -s "$pem" ] || return 1
+      issuer=$($openssl x509 -in "$pem" -noout -issuer 2>/dev/null || true)
+      case "$issuer" in
+        *[Mm]inica*) return 1 ;;
+      esac
+      [ -n "$issuer" ] || return 1
+      end=$($openssl x509 -in "$pem" -noout -enddate | cut -d= -f2)
+      end_epoch=$(date -d "$end" +%s)
+      now=$(date +%s)
+      [ $((end_epoch - now)) -gt 2592000 ]
+    }
+
+    install_pem() {
+      local src_full=$1 src_key=$2 src_chain=$3
+      install -d -m 0750 -o acme -g nginx "$dest" "$live"
+      cp -f "$src_full" "$dest/fullchain.pem"
+      cp -f "$src_key" "$dest/key.pem"
+      if [ -n "$src_chain" ] && [ -s "$src_chain" ]; then
+        cp -f "$src_chain" "$dest/chain.pem"
+      else
+        cp -f "$src_full" "$dest/chain.pem"
+      fi
+      ln -sfn fullchain.pem "$dest/cert.pem"
+      cat "$dest/key.pem" "$dest/fullchain.pem" > "$dest/full.pem"
+      touch "$dest/acme-success"
+      chown -R acme:nginx "$dest"
+      chmod 0640 "$dest/key.pem" "$dest/full.pem"
+      chmod 0644 "$dest/fullchain.pem" "$dest/chain.pem" "$dest/cert.pem" "$dest/acme-success"
+      cp -f "$dest/fullchain.pem" "$live/fullchain.pem"
+      cp -f "$dest/key.pem" "$live/key.pem"
+      cp -f "$dest/chain.pem" "$live/chain.pem"
+      chmod 0640 "$live/key.pem"
+      chgrp nginx "$live/key.pem" 2>/dev/null || true
+      ${pkgs.systemd}/bin/systemctl reload nginx.service
+    }
+
+    publish() {
+      local full_hash
+      $etcdctl put /dome/certs/${certName}/fullchain.pem < "$dest/fullchain.pem" >/dev/null
+      $etcdctl put /dome/certs/${certName}/key.pem < "$dest/key.pem" >/dev/null
+      $etcdctl put /dome/certs/${certName}/chain.pem < "$dest/chain.pem" >/dev/null
+      full_hash=$(sha256sum "$dest/fullchain.pem" | cut -d' ' -f1)
+      $etcdctl put /dome/certs/${certName}/fullchain.pem.hash "$full_hash" >/dev/null
+      $etcdctl put /dome/certs/${certName}/key.pem.hash "$(sha256sum "$dest/key.pem" | cut -d' ' -f1)" >/dev/null
+      $etcdctl put /dome/certs/${certName}/chain.pem.hash "$(sha256sum "$dest/chain.pem" | cut -d' ' -f1)" >/dev/null
+    }
+
+    pull_etcd() {
+      local tmp=$1
+      $etcdctl get /dome/certs/${certName}/fullchain.pem --print-value-only > "$tmp/fullchain.pem" || true
+      $etcdctl get /dome/certs/${certName}/key.pem --print-value-only > "$tmp/key.pem" || true
+      $etcdctl get /dome/certs/${certName}/chain.pem --print-value-only > "$tmp/chain.pem" || true
+      if is_public "$tmp/fullchain.pem" && [ -s "$tmp/key.pem" ]; then
+        install_pem "$tmp/fullchain.pem" "$tmp/key.pem" "$tmp/chain.pem"
+        return 0
+      fi
+      return 1
+    }
+
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    if pull_etcd "$tmp"; then
+      exit 0
+    fi
+    if is_public "$dest/fullchain.pem"; then
+      publish
+      exit 0
+    fi
+
+    install -d -m 0755 ${challengeDir}/.well-known/acme-challenge
+    install -d -m 0700 "$state"
+    ${pkgs.lego}/bin/lego run --accept-tos \
+      --email ${lib.escapeShellArg cfg.email} \
+      --http \
+      --http.webroot ${challengeDir} \
+      --http.delay 2s \
+      --server ${lib.escapeShellArg acmeServer} \
+      --path "$state" \
+      --key-type ec256 \
+      ${domainArgs}
+    crt=$(find "$state/certificates" -name '*.crt' ! -name '*.issuer.crt' | head -n 1)
+    base=$(basename "$crt" .crt)
+    install_pem "$crt" "$state/certificates/$base.key" "$state/certificates/$base.issuer.crt"
+    publish
+  '';
+  issue = pkgs.writeShellScript "dome-acme-http" ''
+    set -euo pipefail
+    ${etcdEnv}
+    etcdctl=${pkgs.etcd}/bin/etcdctl
+    for _ in $(seq 1 30); do
+      if $etcdctl endpoint health >/dev/null 2>&1; then
+        break
+      fi
+      sleep 2
+    done
+    exec $etcdctl lock /dome/acme/http-issue --ttl=600 ${issueLocked}
   '';
   siteCerts = pkgs.writeShellScript "dome-acme-sites" ''
     set -euo pipefail
     install -d -m 0755 ${certLive} ${challengeDir}/.well-known/acme-challenge
     [ -d ${desiredNginx} ] || exit 0
-    server=${
-      lib.escapeShellArg (
-        if cfg.production then
-          "https://acme-v02.api.letsencrypt.org/directory"
-        else
-          "https://acme-staging-v02.api.letsencrypt.org/directory"
-      )
-    }
+    server=${lib.escapeShellArg acmeServer}
     for dns in ${desiredNginx}/*.dns; do
       [ -e "$dns" ] || continue
       name=$(tr -d '\n' < "$dns")
@@ -73,14 +192,14 @@ let
       fi
       work=$(mktemp -d)
       trap 'rm -rf "$work"' EXIT
-      ${pkgs.lego}/bin/lego --accept-tos \
+      ${pkgs.lego}/bin/lego run --accept-tos \
         --email ${lib.escapeShellArg cfg.email} \
         --http \
         --http.webroot ${challengeDir} \
+        --http.delay 2s \
         --server "$server" \
         --path "$work" \
-        --domains "$name" \
-        run
+        --domains "$name"
       install -d -m 0755 "$dest"
       cp "$work/certificates/$name.crt" "$dest/fullchain.pem"
       cp "$work/certificates/$name.key" "$dest/key.pem"
@@ -96,29 +215,64 @@ in
   config = lib.mkIf (config.dome.enable && cfg.enable) {
     users.users.acme.extraGroups = [ "dome-pki" ];
 
+    dome.firewall.peerTCPPorts = [ challengePort ];
+
     systemd.tmpfiles.rules = [
       "d ${challengeDir} 0755 acme nginx -"
       "d ${challengeDir}/.well-known 0755 acme nginx -"
       "d ${challengeDir}/.well-known/acme-challenge 0755 acme nginx -"
-      "d /run/dome 0755 root root -"
-      "f ${reloadStamp} 0664 acme acme -"
     ];
 
-    systemd.paths.dome-dns-acme-reload = {
-      wantedBy = [ "multi-user.target" ];
-      pathConfig = {
-        PathModified = reloadStamp;
-        Unit = "dome-dns-zone-restart.service";
-      };
-    };
+    services.nginx.appendHttpConfig = lib.optionalString (peerIps != [ ]) ''
+      upstream dome_acme_peers {
+        ${lib.concatMapStrings (ip: ''
+          server ${ip}:${toString challengePort};
+        '') peerIps}
+      }
+    '';
 
-    systemd.services.dome-dns-zone-restart = {
-      description = "Restart dome DNS zone render for ACME TXT updates";
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${pkgs.systemd}/bin/systemctl restart dome-dns-zone.service";
+    services.nginx.virtualHosts = {
+      "_" = {
+        default = true;
+        listen = [
+          {
+            addr = "0.0.0.0";
+            port = 80;
+          }
+          {
+            addr = "[::]";
+            port = 80;
+          }
+        ];
+        locations = challengeLocations // {
+          "/" = {
+            return = "404";
+          };
+        };
       };
-    };
+      "dome-acme-challenge" = {
+        serverName = "dome-acme-challenge.invalid";
+        listen = [
+          {
+            addr = "0.0.0.0";
+            port = challengePort;
+          }
+          {
+            addr = "[::]";
+            port = challengePort;
+          }
+        ];
+        locations = {
+          "/.well-known/acme-challenge/" = challengeFileLocation;
+          "/" = {
+            return = "404";
+          };
+        };
+      };
+    }
+    // lib.mapAttrs (_: _: {
+      locations = challengeLocations;
+    }) (lib.genAttrs vhostNames (_: null));
 
     security.acme = {
       acceptTerms = true;
@@ -126,47 +280,58 @@ in
         email = cfg.email;
         server = lib.mkIf (!cfg.production) "https://acme-staging-v02.api.letsencrypt.org/directory";
       };
-      certs."dome.ms" = {
-        domain = "dome.ms";
-        extraDomainNames = [ "*.dome.ms" ];
-        dnsProvider = "exec";
-        environmentFile = execEnv;
-        dnsPropagationCheck = false;
+      certs.${certName} = {
+        domain = certName;
+        extraDomainNames = lib.filter (name: name != certName) httpDomains;
+        webroot = challengeDir;
         group = "nginx";
         reloadServices = [ "nginx.service" ];
       };
     };
 
-    services.nginx.virtualHosts."_" = {
-      default = true;
-      listen = [
-        {
-          addr = "0.0.0.0";
-          port = 80;
-        }
-        {
-          addr = "[::]";
-          port = 80;
-        }
-      ];
-      locations."/.well-known/acme-challenge/" = {
-        root = challengeDir;
-        extraConfig = "default_type text/plain;";
-      };
-      locations."/" = {
-        return = "404";
+    systemd.services."acme-order-renew-${certName}" = {
+      serviceConfig = {
+        ExecStart = lib.mkForce "${pkgs.coreutils}/bin/true";
+        Restart = lib.mkForce "no";
       };
     };
 
-    systemd.services."acme-dome.ms" = {
+    systemd.services.dome-acme-http = {
+      description = "Issue the shared HTTP-01 certificate";
       after = [
+        "nginx.service"
         "etcd.service"
-        "dome-dns-zone.service"
+        "network-online.target"
       ];
       wants = [
+        "nginx.service"
         "etcd.service"
-        "dome-dns-zone.service"
       ];
+      path = with pkgs; [
+        coreutils
+        etcd
+        findutils
+        lego
+        openssl
+        systemd
+      ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = issue;
+        TimeoutStartSec = "10min";
+        Restart = "on-failure";
+        RestartSec = "5min";
+      };
+      startLimitIntervalSec = 3600;
+      startLimitBurst = 4;
+    };
+
+    systemd.timers.dome-acme-http = {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "1min";
+        OnUnitActiveSec = "12h";
+      };
     };
 
     systemd.services.dome-acme-sites = {
@@ -193,46 +358,6 @@ in
       timerConfig = {
         OnBootSec = "3min";
         OnUnitActiveSec = "15min";
-      };
-    };
-
-    systemd.paths.dome-acme-challenge-sync = {
-      wantedBy = [ "multi-user.target" ];
-      pathConfig = {
-        PathChanged = [
-          challengeDir
-          "${challengeDir}/.well-known/acme-challenge"
-        ];
-        Unit = "dome-acme-challenge-publish.service";
-      };
-    };
-
-    systemd.services.dome-acme-challenge-publish = {
-      description = "Publish HTTP-01 challenge files to etcd";
-      after = [ "etcd.service" ];
-      path = [
-        pkgs.coreutils
-        pkgs.etcd
-        pkgs.findutils
-      ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = pkgs.writeShellScript "dome-acme-challenge-publish" ''
-          set -euo pipefail
-          export ETCDCTL_CACERT=${pki}/ca.crt
-          export ETCDCTL_CERT=${pki}/node.crt
-          export ETCDCTL_KEY=${pki}/node.key
-          export ETCDCTL_ENDPOINTS=https://127.0.0.1:2379
-          if ! etcdctl endpoint health >/dev/null 2>&1; then
-            exit 0
-          fi
-          dir=${challengeDir}/.well-known/acme-challenge
-          [ -d "$dir" ] || exit 0
-          find "$dir" -type f -print0 | while IFS= read -r -d $'\0' file; do
-            rel=''${file#"$dir"/}
-            etcdctl put "/dome/acme-challenge/$rel" < "$file" >/dev/null
-          done
-        '';
       };
     };
   };
