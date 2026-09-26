@@ -13,6 +13,7 @@ let
   certLive = "/var/lib/dome/certs/live";
   challengeDir = "/var/lib/acme/acme-challenge";
   challengePort = 8099;
+  fanoutPort = 8098;
   certName = "dome.ms";
   acmeServer =
     if cfg.production then
@@ -229,6 +230,16 @@ in
           server ${ip}:${toString challengePort};
         '') peerIps}
       }
+
+      server {
+        listen 127.0.0.1:${toString fanoutPort};
+        server_name _;
+        location / {
+          proxy_pass http://dome_acme_peers;
+          proxy_next_upstream error timeout http_404;
+          proxy_set_header Host $host;
+        }
+      }
     '';
 
     services.nginx.virtualHosts = {
@@ -270,9 +281,11 @@ in
         };
       };
     }
-    // lib.mapAttrs (_: _: {
-      locations = challengeLocations;
-    }) (lib.genAttrs vhostNames (_: null));
+    // lib.optionalAttrs (peerIps != [ ]) (
+      lib.mapAttrs (_: _: {
+        acmeFallbackHost = "127.0.0.1:${toString fanoutPort}";
+      }) (lib.genAttrs vhostNames (_: null))
+    );
 
     security.acme = {
       acceptTerms = true;
