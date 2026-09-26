@@ -5,6 +5,7 @@
     ./dome/apps-options.nix
     ./dome/acme-options.nix
     ./dome/testing-options.nix
+    ./dome/waf-options.nix
     ./cluster.nix
     ./sops.nix
     ./comin.nix
