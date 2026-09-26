@@ -1,6 +1,8 @@
 {
   config,
   lib,
+  pkgs,
+  inputs,
   ...
 }:
 let
@@ -52,6 +54,7 @@ in
         useSSL = false;
       };
       realmFiles = [ config.sops.templates."msdome.json".path ];
+      themes.dome = import ./keycloak/theme.nix { inherit pkgs inputs; };
       settings = {
         hostname = "https://${cfg.keycloak.host}";
         hostname-strict = false;

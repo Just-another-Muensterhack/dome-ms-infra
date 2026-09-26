@@ -1,0 +1,144 @@
+@font-face {
+  font-family: "Inter";
+  src: url("../fonts/Inter.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("../fonts/SpaceGrotesk.ttf") format("truetype");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --dome-primary: #143f33;
+  --dome-on-primary: #cfe937;
+  --dome-primary-hover: #002c21;
+  --dome-background: #eeeeee;
+  --dome-surface: #f8f8f8;
+  --dome-input: #ffffff;
+  --dome-text: #1a1a1a;
+  --dome-description: #666666;
+  --dome-border: #cccccc;
+  --dome-logo: url("../img/logo-lightmode.svg");
+  --dome-font-text: "Inter", system-ui, sans-serif;
+  --dome-font-heading: "Space Grotesk", "Inter", sans-serif;
+  --dome-radius: 0.375rem;
+  --dome-radius-card: 0.75rem;
+
+  --keycloak-bg-logo-url: none;
+  --keycloak-card-top-color: transparent;
+
+  --pf-v5-global--FontFamily--text: var(--dome-font-text);
+  --pf-v5-global--FontFamily--heading: var(--dome-font-heading);
+  --pf-v5-global--primary-color--100: var(--dome-primary);
+  --pf-v5-global--primary-color--200: var(--dome-primary-hover);
+  --pf-v5-global--link--Color: var(--dome-primary);
+  --pf-v5-global--link--Color--hover: var(--dome-primary-hover);
+  --pf-v5-global--BackgroundColor--100: var(--dome-input);
+  --pf-v5-global--Color--100: var(--dome-text);
+  --pf-v5-global--Color--200: var(--dome-description);
+  --pf-v5-global--BorderColor--300: var(--dome-border);
+  --pf-v5-global--BorderRadius--sm: var(--dome-radius);
+}
+
+:root.pf-v5-theme-dark {
+  --dome-primary: #b6ce00;
+  --dome-on-primary: #143f33;
+  --dome-primary-hover: #c9e22c;
+  --dome-background: #222222;
+  --dome-surface: #333333;
+  --dome-input: #3f3f3f;
+  --dome-text: #e6e6e6;
+  --dome-description: #999999;
+  --dome-border: #666666;
+  --dome-logo: url("../img/logo-darkmode.svg");
+}
+
+html,
+.login-pf body {
+  background: var(--dome-background);
+  color: var(--dome-text);
+  font-family: var(--dome-font-text);
+}
+
+#kc-header-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  font-family: var(--dome-font-heading);
+  font-size: 1.75rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--dome-primary) !important;
+}
+
+#kc-header-wrapper::before {
+  content: "";
+  flex-shrink: 0;
+  width: 3rem;
+  height: 3rem;
+  background: var(--dome-logo) no-repeat center / contain;
+}
+
+:root .pf-v5-c-login__main {
+  --pf-v5-c-login__main--BackgroundColor: var(--dome-surface);
+  --pf-v5-c-login__main--BoxShadow: none;
+  border: 1px solid var(--dome-border);
+  border-radius: var(--dome-radius-card);
+  overflow: hidden;
+}
+
+.pf-v5-c-login__main-header {
+  border-top: none;
+}
+
+#kc-page-title {
+  font-family: var(--dome-font-heading);
+  font-weight: 600;
+  color: var(--dome-text);
+}
+
+:root .pf-v5-c-button {
+  --pf-v5-c-button--BorderRadius: var(--dome-radius);
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--dome-primary);
+  --pf-v5-c-button--m-primary--Color: var(--dome-on-primary);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--dome-primary-hover);
+  --pf-v5-c-button--m-primary--hover--Color: var(--dome-on-primary);
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--dome-primary-hover);
+  --pf-v5-c-button--m-primary--focus--Color: var(--dome-on-primary);
+  --pf-v5-c-button--m-primary--active--BackgroundColor: var(--dome-primary-hover);
+  --pf-v5-c-button--m-primary--active--Color: var(--dome-on-primary);
+  --pf-v5-c-button--m-link--Color: var(--dome-primary);
+  --pf-v5-c-button--m-link--hover--Color: var(--dome-primary-hover);
+  font-weight: 600;
+}
+
+:root .pf-v5-c-form-control {
+  --pf-v5-c-form-control--BackgroundColor: var(--dome-input);
+  --pf-v5-c-form-control--before--BorderTopColor: var(--dome-border);
+  --pf-v5-c-form-control--before--BorderRightColor: var(--dome-border);
+  --pf-v5-c-form-control--before--BorderLeftColor: var(--dome-border);
+  --pf-v5-c-form-control--after--BorderBottomColor: var(--dome-border);
+  border-radius: var(--dome-radius);
+  overflow: hidden;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--dome-primary);
+}
+
+a {
+  color: var(--dome-primary);
+}
+
+a:hover {
+  color: var(--dome-primary-hover);
+}

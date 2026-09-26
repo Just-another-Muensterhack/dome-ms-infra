@@ -78,6 +78,7 @@ in
 {
   realm = "msdome";
   displayName = "MSDome";
+  loginTheme = "dome";
   enabled = true;
   sslRequired = "external";
   registrationAllowed = false;
