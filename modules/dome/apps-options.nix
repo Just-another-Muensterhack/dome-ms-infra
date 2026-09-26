@@ -33,6 +33,11 @@
         type = lib.types.port;
         default = 8000;
       };
+
+      modelApiUrl = lib.mkOption {
+        type = lib.types.str;
+        default = "https://mshack.items.services";
+      };
     };
 
     web = {
