@@ -20,6 +20,11 @@ let
   jgroupsEnv = "${jgroupsDir}/jgroups.env";
   jgroupsPort = 7800;
   jgroupsFdPort = 57800;
+  realmLink = pkgs.writeShellScript "keycloak-realm-link" ''
+    set -euo pipefail
+    install -d -m 0700 /run/keycloak/data/import
+    ln -sfn ${config.sops.templates."msdome.json".path} /run/keycloak/data/import/msdome.json
+  '';
   jgroupsStores = pkgs.writeShellScript "keycloak-jgroups-stores" ''
     set -euo pipefail
     umask 077
@@ -188,7 +193,10 @@ in
           config.sops.templates."keycloak-bootstrap.env".path
           jgroupsEnv
         ];
-        ExecStartPre = [ jgroupsStores ];
+        ExecStartPre = [
+          realmLink
+          jgroupsStores
+        ];
       };
     };
 
