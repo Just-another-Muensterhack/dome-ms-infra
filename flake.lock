@@ -34,11 +34,11 @@
         "uv2nix": "uv2nix"
       },
       "locked": {
-        "lastModified": 1790428234,
-        "narHash": "sha256-GjtquV5g424s7MWHiR9n0oHhB2nF63ZvwXiVyt/gH6c=",
+        "lastModified": 1790429852,
+        "narHash": "sha256-y6OqMzwF0zHUi1319NSsX5r2Ehh+fqCPzuq+B9YftKc=",
         "owner": "Just-another-Muensterhack",
         "repo": "dome-ms",
-        "rev": "c5d5cb82a070886a4c9a6aa8d4b4667907ca6ab1",
+        "rev": "9d731fdbbb49dd3ad1a004794a32684f0e10ead5",
         "type": "github"
       },
       "original": {
