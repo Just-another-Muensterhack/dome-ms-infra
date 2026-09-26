@@ -18,6 +18,17 @@ let
     ]
     ++ lib.optional (cfg.publicHost != null) cfg.publicHost
   );
+  mediaCsp = lib.concatStringsSep "; " [
+    "default-src 'none'"
+    "script-src 'self' 'unsafe-inline' https: http:"
+    "img-src 'self' https: http: data:"
+    "style-src 'self' 'unsafe-inline' https: http:"
+    "font-src 'self' https: http: data:"
+    "connect-src 'self' https: http:"
+    "base-uri 'none'"
+    "form-action 'none'"
+    "frame-ancestors ${lib.concatStringsSep " " ([ "'self'" ] ++ corsOrigins)}"
+  ];
   stateRoot = "/var/lib/dome.ms";
   mediaRoot = "${stateRoot}/data";
   nginxConfigDir = "${stateRoot}/nginx-desired";
@@ -150,6 +161,19 @@ in
         locations."/" = http.proxy cfg.backend.port // {
           extraConfig = ''
             proxy_read_timeout 360s;
+          '';
+        };
+      };
+      virtualHosts.${cfg.web.host}.locations = {
+        "/api/" = http.proxy cfg.backend.port // {
+          extraConfig = ''
+            proxy_read_timeout 360s;
+          '';
+        };
+        "/media/" = {
+          alias = "${mediaRoot}/";
+          extraConfig = ''
+            add_header Content-Security-Policy "${mediaCsp}" always;
           '';
         };
       };
