@@ -15,6 +15,8 @@ let
   challengePort = 8099;
   fanoutPort = 8098;
   certName = "dome.ms";
+  sitesState = "/var/lib/acme/sites-lego";
+  failureBackoffMinutes = 10;
   acmeServer =
     if cfg.production then
       "https://acme-v02.api.letsencrypt.org/directory"
@@ -179,37 +181,47 @@ let
   siteCerts = pkgs.writeShellScript "dome-acme-sites" ''
     set -euo pipefail
     install -d -m 0755 ${certLive} ${challengeDir}/.well-known/acme-challenge
+    install -d -m 0700 ${sitesState} ${sitesState}/failed
     [ -d ${desiredNginx} ] || exit 0
-    server=${lib.escapeShellArg acmeServer}
-    for dns in ${desiredNginx}/*.dns; do
-      [ -e "$dns" ] || continue
-      name=$(tr -d '\n' < "$dns")
+    issued=0
+    for conf in ${desiredNginx}/*.conf; do
+      [ -e "$conf" ] || continue
+      name=$(basename "$conf" .conf)
       case "$name" in
-        *.dome.ms|dome.ms|_wildcard_.*) continue ;;
+        _wildcard.*|*/*|.*) continue ;;
       esac
       dest=${certLive}/$name
-      if [ -f "$dest/fullchain.pem" ] && [ -f "$dest/key.pem" ]; then
+      if [ -f "$dest/key.pem" ] && ${pkgs.openssl}/bin/openssl x509 -in "$dest/fullchain.pem" -noout -checkend 2592000 >/dev/null 2>&1; then
         continue
       fi
-      work=$(mktemp -d)
-      trap 'rm -rf "$work"' EXIT
-      ${pkgs.lego}/bin/lego run --accept-tos \
+      failed=${sitesState}/failed/$name
+      if [ -n "$(find "$failed" -mmin -${toString failureBackoffMinutes} 2>/dev/null)" ]; then
+        continue
+      fi
+      if ! ${pkgs.lego}/bin/lego run --accept-tos \
         --email ${lib.escapeShellArg cfg.email} \
         --http \
         --http.webroot ${challengeDir} \
         --http.delay 2s \
-        --server "$server" \
-        --path "$work" \
-        --domains "$name"
+        --server ${lib.escapeShellArg acmeServer} \
+        --path ${sitesState} \
+        --key-type ec256 \
+        --domains "$name"; then
+        echo "issuing $name failed, retrying in ${toString failureBackoffMinutes}min" >&2
+        touch "$failed"
+        continue
+      fi
+      rm -f "$failed"
       install -d -m 0755 "$dest"
-      cp "$work/certificates/$name.crt" "$dest/fullchain.pem"
-      cp "$work/certificates/$name.key" "$dest/key.pem"
+      cp -f ${sitesState}/certificates/$name.crt "$dest/fullchain.pem"
+      cp -f ${sitesState}/certificates/$name.key "$dest/key.pem"
       chmod 0640 "$dest/key.pem"
       chgrp nginx "$dest/key.pem" 2>/dev/null || true
-      rm -rf "$work"
-      trap - EXIT
+      issued=1
     done
-    ${pkgs.systemd}/bin/systemctl start --no-block dome-sync.service || true
+    if [ "$issued" = 1 ]; then
+      ${pkgs.systemd}/bin/systemctl start --no-block dome-sync.service || true
+    fi
   '';
 in
 {
@@ -357,12 +369,15 @@ in
       path = with pkgs; [
         coreutils
         etcd
+        findutils
         lego
+        openssl
         systemd
       ];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = siteCerts;
+        TimeoutStartSec = "30min";
       };
     };
 
@@ -370,7 +385,7 @@ in
       wantedBy = [ "timers.target" ];
       timerConfig = {
         OnBootSec = "3min";
-        OnUnitActiveSec = "15min";
+        OnUnitActiveSec = "5min";
       };
     };
   };

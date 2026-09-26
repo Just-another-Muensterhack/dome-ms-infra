@@ -139,7 +139,7 @@ let
         for cert_dir in /var/lib/acme/*/; do
           [ -d "$cert_dir" ] || continue
           case "$(basename "$cert_dir")" in
-            acme-challenge|http-lego|.lego|.minica) continue ;;
+            acme-challenge|http-lego|sites-lego|.lego|.minica) continue ;;
           esac
           publish_cert_dir "$cert_dir"
         done
@@ -182,25 +182,17 @@ let
       done
     fi
 
+    missing_certs=0
     for conf in ${desiredNginx}/*.conf; do
       [ -e "$conf" ] || continue
       base=$(basename "$conf" .conf)
-      case "$base" in
-        *.dome.ms|dome.ms)
-          if [ -f "${certLive}/dome.ms/fullchain.pem" ] || [ -f "${certLive}/$base/fullchain.pem" ]; then
-            cp -f "$conf" ${liveNginx}/
-          else
-            echo "skip $base.conf; certificate not ready" >&2
-          fi
-          ;;
-        *)
-          if [ -f "${certLive}/$base/fullchain.pem" ]; then
-            cp -f "$conf" ${liveNginx}/
-          else
-            echo "skip $base.conf; certificate not ready" >&2
-          fi
-          ;;
-      esac
+      if [ -f "${certLive}/$base/fullchain.pem" ] && [ -f "${certLive}/$base/key.pem" ]; then
+        cp -f "$conf" ${liveNginx}/
+      else
+        echo "skip $base.conf; certificate not ready" >&2
+        rm -f "${liveNginx}/$base.conf"
+        missing_certs=1
+      fi
     done
 
     for conf in ${liveNginx}/*.conf; do
@@ -211,6 +203,9 @@ let
       fi
     done
 
+    if [ "$missing_certs" = 1 ]; then
+      systemctl start --no-block dome-acme-sites.service || true
+    fi
     systemctl start --no-block dome-nginx-reload.service || true
     systemctl start --no-block dome-dns-zone.service || true
   '';
