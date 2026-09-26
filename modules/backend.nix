@@ -148,7 +148,9 @@ in
       '';
       virtualHosts.${cfg.backend.host} = http.tls // {
         locations."/" = http.proxy cfg.backend.port // {
-          proxyReadTimeout = "360s";
+          extraConfig = ''
+            proxy_read_timeout 360s;
+          '';
         };
       };
     };
